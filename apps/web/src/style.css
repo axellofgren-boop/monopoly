@@ -307,6 +307,62 @@ body.flat .fps {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
+.holdings {
+  grid-column: 1 / 4;
+  font-size: 12px;
+}
+.holdings summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 2px 0;
+}
+.holdings summary:hover {
+  color: inherit;
+}
+.holdings ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.players .holdings li {
+  display: block;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.holding {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.holding:hover {
+  background: var(--panel-2);
+}
+.holding.mortgaged {
+  opacity: 0.6;
+}
+.holding .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+.holding .extra {
+  margin-left: auto;
+  color: var(--muted);
+}
 .players .items {
   grid-column: 2 / 4;
   font-size: 12px;

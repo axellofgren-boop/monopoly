@@ -119,10 +119,11 @@ export class CameraRig {
       this.dist = THREE.MathUtils.clamp(off.length(), ORBIT_MIN, ORBIT_MAX);
       this.yaw = Math.atan2(off.x, off.z);
       this.elev = THREE.MathUtils.clamp(Math.asin(off.y / (off.length() || 1)), 0.25, 1.35);
-      this.view('board');
       this.keys.clear();
     }
+    // Set before view(), which itself leaves fly mode and would otherwise recurse forever.
     this.mode = mode;
+    if (mode === 'orbit') this.view('board');
   }
 
   /** Orbit presets. */
