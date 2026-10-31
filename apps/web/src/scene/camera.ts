@@ -13,6 +13,10 @@ export type CameraMode = 'orbit' | 'fly';
 
 const ORBIT_MIN = 2.2;
 const ORBIT_MAX = 22;
+/** Lens zoom: field of view as a share of the normal one (small = zoomed in). */
+const LENS_MIN = 0.12;
+const LENS_MAX = 1.5;
+const FOV_MAX = 80;
 /** Height kept above whatever is underneath while flying. */
 const CLEARANCE = 0.12;
 const FLY_KEYS = new Set([
@@ -49,7 +53,11 @@ export function shortestAngle(a: number, b: number): number {
 export class CameraRig {
   mode: CameraMode = 'orbit';
   autoRotate = true;
+  /** Normal field of view for the screen shape; the lens zoom scales it. */
+  baseFov: number;
   private idle = 0;
+  private lens = 1;
+  private goalLens = 1;
 
   // orbit
   private yaw = 0.1;
@@ -73,6 +81,7 @@ export class CameraRig {
   private readonly dir = new THREE.Vector3();
 
   constructor(readonly camera: THREE.PerspectiveCamera) {
+    this.baseFov = camera.fov;
     addEventListener('keydown', this.onKey);
     addEventListener('keyup', this.onKey);
     addEventListener('blur', () => this.keys.clear());
@@ -119,6 +128,7 @@ export class CameraRig {
   /** Orbit presets. */
   view(kind: 'board' | { x: number; z: number; facing: number }): void {
     if (this.mode === 'fly') this.setMode('orbit');
+    this.goalLens = 1;
     if (kind === 'board') {
       this.goal.set(0, 1, 0);
       this.goalDist = 14.8;
@@ -142,6 +152,9 @@ export class CameraRig {
   /** One-finger drag or mouse drag, in pixels. */
   drag(dx: number, dy: number): void {
     this.idle = 0;
+    // Turn slower when zoomed in, so the view doesn't whip around.
+    dx *= this.lens;
+    dy *= this.lens;
     if (this.mode === 'orbit') {
       this.yaw -= dx * 0.006;
       this.elev = THREE.MathUtils.clamp(this.elev + dy * 0.004, 0.25, 1.35);
@@ -151,16 +164,13 @@ export class CameraRig {
     }
   }
 
-  /** Zoom (orbit) or move forward/back (fly). factor < 1 means in/forward. */
+  /**
+   * Zoom the view like a camera lens: the camera (and your avatar) stays where it is and only
+   * the field of view narrows or widens. factor < 1 means zoom in.
+   */
   zoom(factor: number): void {
     this.idle = 0;
-    if (this.mode === 'orbit') {
-      this.goalDist = null;
-      this.dist = THREE.MathUtils.clamp(this.dist * factor, ORBIT_MIN, ORBIT_MAX);
-    } else {
-      this.camera.getWorldDirection(this.dir);
-      this.push.addScaledVector(this.dir, (1 - factor) * 12 * this.speed());
-    }
+    this.goalLens = THREE.MathUtils.clamp(this.goalLens * factor, LENS_MIN, LENS_MAX);
   }
 
   /** Two-finger drag while flying: slide sideways and up/down. */
@@ -178,10 +188,24 @@ export class CameraRig {
     return THREE.MathUtils.clamp(above * 0.9 + 0.8, 1, 9);
   }
 
-  update(dt: number, allowAutoRotate: boolean): void {
+  /** Returns true when the field of view changed this frame. */
+  update(dt: number, allowAutoRotate: boolean): boolean {
     this.idle += dt;
     if (this.mode === 'fly') this.updateFly(dt);
     else this.updateOrbit(dt, allowAutoRotate);
+    return this.updateLens(dt);
+  }
+
+  private updateLens(dt: number): boolean {
+    // Ease in log space so zooming feels even at every level.
+    const k = Math.min(1, dt * 10);
+    this.lens = Math.exp(Math.log(this.lens) + (Math.log(this.goalLens) - Math.log(this.lens)) * k);
+    if (Math.abs(this.lens - this.goalLens) < 1e-4) this.lens = this.goalLens;
+    const fov = Math.min(FOV_MAX, this.baseFov * this.lens);
+    if (Math.abs(fov - this.camera.fov) < 1e-3) return false;
+    this.camera.fov = fov;
+    this.camera.updateProjectionMatrix();
+    return true;
   }
 
   private updateOrbit(dt: number, allowAutoRotate: boolean): void {

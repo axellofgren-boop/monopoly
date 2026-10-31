@@ -624,9 +624,8 @@ export class BoardScene {
     const h = this.canvas.clientHeight || innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
-    this.camera.fov = w < h ? 55 : 40;
+    this.rig.baseFov = w < h ? 55 : 40;
     this.camera.updateProjectionMatrix();
-    if (this.baked) rescaleHalos(this.baked.halos, this.camera.fov);
   };
 
   private readonly frame = (now: number): void => {
@@ -644,7 +643,9 @@ export class BoardScene {
     this.animateTokens(dt);
     this.dice.update(dt, this.time);
     this.avatars.update(dt, this.time);
-    this.rig.update(dt, !reduceMotion);
+    if (this.rig.update(dt, !reduceMotion) && this.baked) {
+      rescaleHalos(this.baked.halos, this.camera.fov);
+    }
     this.sendPose(dt);
     this.renderer.render(this.scene, this.camera);
     this.stats.frame(now);

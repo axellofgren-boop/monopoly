@@ -508,7 +508,7 @@ export function renderGame(view: GameView, on: GameHandlers): HTMLElement {
       ? h(
           'p',
           { class: 'fly-hint' },
-          'Flying: W A S D to move, Space and Shift to go up and down, drag to look, scroll to dash.',
+          'Flying: W A S D to move, Space and Shift to go up and down, drag to look, scroll to zoom.',
         )
       : null,
     h(
