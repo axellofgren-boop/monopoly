@@ -20,7 +20,12 @@ export interface GameView {
 export interface GameHandlers {
   send: (intent: Intent) => void;
   /** Present when the 3D board is running; moves its camera. */
-  camera?: { view: (kind: 'board' | 'me') => void; zoom: (factor: number) => void };
+  camera?: {
+    view: (kind: 'board' | 'me') => void;
+    zoom: (factor: number) => void;
+    flying: () => boolean;
+    toggleFly: () => void;
+  };
   select: (space: number | null) => void;
   toggleTrade: (open: boolean) => void;
   propose: (to: string, give: TradeSide, get: TradeSide) => void;
@@ -165,6 +170,8 @@ function controls(view: GameView, on: GameHandlers): HTMLElement {
           }
         }
         parts.push(h('div', { class: 'row' }, row));
+        if (on.camera)
+          parts.push(h('p', { class: 'small' }, 'Or grab the dice by the board and throw them.'));
       } else if (ph.kind === 'chooseDice') {
         const pairs: [number, number][] = [
           [0, 1],
@@ -497,9 +504,21 @@ export function renderGame(view: GameView, on: GameHandlers): HTMLElement {
     { class: 'hud' },
     h('div', { class: 'hud-panel' }, panel),
     players,
+    camera.flying()
+      ? h(
+          'p',
+          { class: 'fly-hint' },
+          'Flying: W A S D to move, Space and Shift to go up and down, drag to look, scroll to dash.',
+        )
+      : null,
     h(
       'div',
       { class: 'hud-views' },
+      btn(
+        camera.flying() ? 'Stop flying' : 'Fly',
+        camera.toggleFly,
+        camera.flying() ? 'primary' : '',
+      ),
       btn('Whole board', () => camera.view('board')),
       btn('My token', () => camera.view('me')),
       h(

@@ -4,14 +4,31 @@
  */
 import * as THREE from 'three';
 import type { PublicState } from '@hometown/engine';
-import type { Token } from '@hometown/protocol';
+import type { CameraPose, DiceThrow, Token } from '@hometown/protocol';
 import { TOKEN_INFO } from '../theme.js';
+import { Avatars } from './avatars.js';
 import { B, Builder, CYL, GLOW, T, canvas2d, srgbTexture } from './builder.js';
 import { drawBoard } from './boardTexture.js';
+import { CameraRig, shortestAngle } from './camera.js';
+import type { CameraMode } from './camera.js';
 import { buildCity } from './city.js';
 import type { Animate } from './city.js';
+import { DiceTable } from './dice.js';
 import { CORNER, SURFACE_Y, spaceAtPoint, spaceFrame } from './layout.js';
+import { bakeStatic, rescaleHalos } from './optimise.js';
+import type { BakeResult } from './optimise.js';
+import { FrameStats } from './stats.js';
+import type { FrameStatsReport } from './stats.js';
 import { buildToken } from './tokens.js';
+
+export type { CameraMode } from './camera.js';
+export type { FrameStatsReport } from './stats.js';
+
+/** A roll to animate: how the dice were thrown and the values the server rolled. */
+export interface RollAnimation {
+  diceThrow: DiceThrow;
+  dice: number[];
+}
 
 // Match the approved look's colour handling (authored against the older pipeline).
 THREE.ColorManagement.enabled = false;
@@ -34,24 +51,6 @@ interface TokenPiece {
   hopT: number;
 }
 
-interface DieAnim {
-  group: THREE.Group;
-  cube: THREE.Mesh;
-  rest: THREE.Euler;
-  spin: THREE.Vector3;
-  t: number;
-}
-
-/** Euler angles that turn each face value to the top. Face order matches dieMaterials. */
-const DIE_FACE_UP: Record<number, [number, number, number]> = {
-  1: [0, 0, Math.PI / 2],
-  2: [0, 0, 0],
-  3: [-Math.PI / 2, 0, 0],
-  4: [Math.PI / 2, 0, 0],
-  5: [Math.PI, 0, 0],
-  6: [0, 0, -Math.PI / 2],
-};
-
 const yawAlong = ([ax, az]: [number, number]) => Math.atan2(-az, ax);
 const yawFacing = ([ix, iz]: [number, number]) => Math.atan2(-ix, -iz);
 
@@ -61,45 +60,47 @@ export class BoardScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(40, 1, 0.1, 300);
+  private readonly rig: CameraRig;
+  private readonly stats: FrameStats;
   private readonly builder: Builder;
   private readonly animateCity: Animate;
+  private readonly baked: BakeResult;
   private readonly pieces = new THREE.Group();
   private readonly tokens = new Map<string, TokenPiece>();
   private readonly buildings = new Map<number, { key: string; group: THREE.Group }>();
-  private readonly dice: DieAnim[] = [];
+  private readonly dice: DiceTable;
+  private readonly avatars: Avatars;
   private readonly turnRing: THREE.Mesh;
   private readonly selectFrame: THREE.Group;
   private readonly hoverFrame: THREE.Group;
   private state: PublicState | null = null;
+  /** Latest state whose token moves wait until the dice have landed. */
+  private deferred: PublicState | null = null;
   private me: string | null = null;
-  private diceKey = '';
-  private autoRotate = true;
-
-  // camera
-  private yaw = 0.1;
-  private elev = 0.74;
-  private dist = 14.8;
-  private readonly target = new THREE.Vector3(0, 1, 0);
-  private readonly goal = this.target.clone();
-  private goalDist: number | null = null;
-  private goalYaw: number | null = null;
-  private goalElev: number | null = null;
-  private idle = 0;
   private time = 0;
   private last = performance.now();
   private frameId = 0;
+  private poseTimer = 0;
+  private lastPose = '';
 
   onSpaceClick: (index: number) => void = () => undefined;
+  /** The local player threw the dice. */
+  onThrow: (t: DiceThrow) => void = () => undefined;
+  /** The local camera moved (throttled). */
+  onCamera: (pose: CameraPose) => void = () => undefined;
+  onStats: (r: FrameStatsReport) => void = () => undefined;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const r = new THREE.WebGLRenderer({ canvas, antialias: true });
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
-    r.setPixelRatio(Math.min(devicePixelRatio, 2));
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 0.72;
     this.renderer = r;
+    this.stats = new FrameStats(r, () => this.resize());
+    this.stats.onReport = (report) => this.onStats(report);
+    this.rig = new CameraRig(this.camera);
 
     const scene = this.scene;
     scene.fog = new THREE.Fog(0x1a2456, 18, 48);
@@ -117,7 +118,7 @@ export class BoardScene {
     const moon = new THREE.DirectionalLight(0xa8b8f0, 0.5);
     moon.position.set(-9, 15, 7);
     moon.castShadow = true;
-    moon.shadow.mapSize.set(4096, 4096);
+    moon.shadow.mapSize.set(2048, 2048);
     moon.shadow.radius = 3;
     Object.assign(moon.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8, near: 1, far: 45 });
     moon.shadow.bias = -0.0006;
@@ -128,8 +129,14 @@ export class BoardScene {
     const b = new Builder(world);
     this.builder = b;
     this.buildBoard(b);
-    this.animateCity = buildCity(b);
-    this.buildDice(b);
+    const city = buildCity(b);
+    this.animateCity = city.animate;
+    // Merge everything that never moves into a few draw calls.
+    this.baked = bakeStatic(world, new Set(city.moving), this.camera.fov);
+    b.linkedHalos = this.baked.linked;
+    this.dice = new DiceTable(b);
+    this.avatars = new Avatars(b, this.pieces);
+    scene.add(this.dice.group);
 
     this.turnRing = new THREE.Mesh(
       new THREE.TorusGeometry(0.2, 0.018, 12, 48),
@@ -161,47 +168,69 @@ export class BoardScene {
 
   /** Slowly spins the camera while nobody is touching it (used behind the lobby). */
   setAutoRotate(on: boolean): void {
-    this.autoRotate = on;
+    this.rig.autoRotate = on;
   }
 
-  update(state: PublicState | null, me: string | null): void {
+  update(state: PublicState | null, me: string | null, roll?: RollAnimation): void {
     this.state = state;
     this.me = me;
     if (!state) {
       for (const t of this.tokens.values()) this.pieces.remove(t.object);
       this.tokens.clear();
+      this.avatars.setPlayers([], null);
       return;
     }
-    this.syncTokens(state);
+    const meP = state.players.find((p) => p.id === me);
+    this.dice.canPickUp =
+      !!meP && state.turn.current === me && state.phase.kind === 'awaitingRoll' && !meP.pendingItem;
+    this.avatars.setPlayers(
+      state.players.filter((p) => !p.bankrupt),
+      me,
+    );
     this.syncBuildings(state);
-    this.syncDice(state);
+    if (roll) {
+      // Tokens move once the dice have landed.
+      this.deferred = state;
+      this.dice.play(roll.diceThrow, roll.dice, reduceMotion, () => {
+        const latest = this.deferred;
+        this.deferred = null;
+        if (latest) this.syncTokens(latest);
+      });
+    } else if (this.dice.rolling) {
+      this.deferred = state;
+    } else {
+      this.syncTokens(state);
+    }
+  }
+
+  setPoses(poses: Record<string, CameraPose>): void {
+    this.avatars.setPoses(poses);
   }
 
   select(index: number | null): void {
     this.placeFrame(this.selectFrame, index);
   }
 
+  get cameraMode(): CameraMode {
+    return this.rig.mode;
+  }
+
+  setCameraMode(mode: CameraMode): void {
+    this.rig.setMode(mode);
+  }
+
   view(kind: CameraView): void {
     const mine = this.me ? this.tokens.get(this.me) : undefined;
     if (kind === 'me' && mine) {
       const f = spaceFrame(mine.space);
-      this.goal.set(mine.target.x, 0.3, mine.target.z);
-      this.goalDist = 4.2;
-      this.goalYaw = this.nearestYaw(yawFacing(f.inward));
-      this.goalElev = 0.62;
+      this.rig.view({ x: mine.target.x, z: mine.target.z, facing: yawFacing(f.inward) });
     } else {
-      this.goal.set(0, 1, 0);
-      this.goalDist = 14.8;
-      this.goalYaw = this.nearestYaw(0.1);
-      this.goalElev = 0.74;
+      this.rig.view('board');
     }
-    this.idle = -6;
   }
 
   zoom(factor: number): void {
-    this.goalDist = null;
-    this.dist = clampDist(this.dist * factor);
-    this.idle = 0;
+    this.rig.zoom(factor);
   }
 
   // ------------------------------------------------------------------ board
@@ -241,7 +270,14 @@ export class BoardScene {
 
   private tileFrame(color: number, glow: number): THREE.Group {
     const g = new THREE.Group();
-    const mat = T(color, { ...GLOW(color, glow), transparent: true, opacity: 0.95 });
+    // Its own material: the selection pulse changes it every frame.
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      ...GLOW(color, glow),
+      transparent: true,
+      opacity: 0.95,
+      roughness: 0.72,
+    });
     for (let i = 0; i < 4; i++) {
       const bar = new THREE.Mesh(new THREE.BoxGeometry(1, 0.03, 0.04), mat);
       g.add(bar);
@@ -474,167 +510,92 @@ export class BoardScene {
     return g;
   }
 
-  // ------------------------------------------------------------------ dice
-
-  private buildDice(b: Builder): void {
-    const face = (n: number) => {
-      const [c, x] = canvas2d(128, 128);
-      x.fillStyle = '#fff';
-      x.fillRect(0, 0, 128, 128);
-      x.fillStyle = '#e8344e';
-      const pips: Record<number, [number, number][]> = {
-        1: [[64, 64]],
-        2: [
-          [34, 34],
-          [94, 94],
-        ],
-        3: [
-          [34, 34],
-          [64, 64],
-          [94, 94],
-        ],
-        4: [
-          [34, 34],
-          [94, 34],
-          [34, 94],
-          [94, 94],
-        ],
-        5: [
-          [34, 34],
-          [94, 34],
-          [64, 64],
-          [34, 94],
-          [94, 94],
-        ],
-        6: [
-          [34, 30],
-          [94, 30],
-          [34, 64],
-          [94, 64],
-          [34, 98],
-          [94, 98],
-        ],
-      };
-      for (const [a, bb] of pips[n] ?? []) {
-        x.beginPath();
-        x.arc(a, bb, 12, 0, Math.PI * 2);
-        x.fill();
-      }
-      return T(0xffffff, { map: srgbTexture(c) });
-    };
-    const mats = [1, 6, 2, 5, 3, 4].map(face);
-    const spots: [number, number, number][] = [
-      [6.3, 2.4, 0.5],
-      [6.9, 3.3, -0.3],
-      [6.0, 3.9, 0.9],
-    ];
-    for (const [x, z, ry] of spots) {
-      const group = b.group(x, -0.225, z);
-      group.rotation.y = ry;
-      const cube = b.mesh(B(0.55, 0.55, 0.55), mats, 0, 0, 0, { parent: group });
-      group.visible = this.dice.length < 2;
-      this.dice.push({ group, cube, rest: new THREE.Euler(), spin: new THREE.Vector3(), t: 1 });
-    }
-  }
-
-  private syncDice(state: PublicState): void {
-    const dice = state.turn.lastDice;
-    const key = `${state.round}|${state.turn.current}|${dice?.join(',') ?? ''}`;
-    if (!dice || key === this.diceKey) return;
-    const first = this.diceKey === '';
-    this.diceKey = key;
-    this.dice.forEach((d, i) => {
-      const value = dice[i];
-      d.group.visible = value !== undefined;
-      if (value === undefined) return;
-      const [rx, ry, rz] = DIE_FACE_UP[value] ?? [0, 0, 0];
-      d.rest.set(rx, ry, rz);
-      d.spin.set(8 + Math.random() * 6, 6 + Math.random() * 6, 7 + Math.random() * 6);
-      d.t = first || reduceMotion ? 1 : 0;
-      if (d.t === 1) d.cube.rotation.copy(d.rest);
-    });
-  }
-
-  private animateDice(dt: number): void {
-    for (const d of this.dice) {
-      if (d.t >= 1) continue;
-      d.t = Math.min(1, d.t + dt / 0.8);
-      const left = 1 - d.t;
-      const ease = left * left;
-      d.cube.rotation.set(
-        d.rest.x + d.spin.x * ease,
-        d.rest.y + d.spin.y * ease,
-        d.rest.z + d.spin.z * ease,
-      );
-      d.cube.position.y = Math.abs(Math.sin(d.t * Math.PI * 2)) * 0.5 * left;
-    }
-  }
-
   // ------------------------------------------------------------------ camera and input
-
-  private nearestYaw(yaw: number): number {
-    return this.yaw + shortestAngle(this.yaw, yaw);
-  }
 
   private bindControls(): void {
     const canvas = this.canvas;
     const ptrs = new Map<number, { x: number; y: number }>();
     let pinch0 = 0;
     let down: { x: number; y: number } | null = null;
+    let grabbing: number | null = null;
     const raycaster = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -SURFACE_Y);
-    const pick = (e: PointerEvent): number | null => {
+    const hitPoint = new THREE.Vector3();
+    const aim = (e: PointerEvent): THREE.Raycaster => {
       const rect = canvas.getBoundingClientRect();
-      const ndc = new THREE.Vector2(
+      ndc.set(
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
         -((e.clientY - rect.top) / rect.height) * 2 + 1,
       );
       raycaster.setFromCamera(ndc, this.camera);
-      const hit = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+      return raycaster;
+    };
+    const pick = (e: PointerEvent): number | null => {
+      const hit = aim(e).ray.intersectPlane(plane, hitPoint);
       return hit ? spaceAtPoint(hit.x, hit.z) : null;
     };
-    const interrupt = () => {
-      this.goalDist = this.goalYaw = this.goalElev = null;
-      this.idle = 0;
+    const mid = () => {
+      const [a, b] = [...ptrs.values()];
+      return a && b
+        ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) }
+        : null;
     };
+    let mid0: { x: number; y: number } | null = null;
+
     canvas.addEventListener('pointerdown', (e) => {
-      interrupt();
+      this.rig.interrupt();
+      canvas.setPointerCapture(e.pointerId);
+      if (ptrs.size === 0 && this.dice.hit(aim(e))) {
+        grabbing = e.pointerId;
+        this.dice.grab(raycaster, performance.now());
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
       ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
       down = ptrs.size === 1 ? { x: e.clientX, y: e.clientY } : null;
-      canvas.setPointerCapture(e.pointerId);
-      if (ptrs.size === 2) {
-        const [a, b] = [...ptrs.values()];
-        if (a && b) pinch0 = Math.hypot(a.x - b.x, a.y - b.y);
+      const m = mid();
+      if (m) {
+        pinch0 = m.d;
+        mid0 = m;
       }
     });
     canvas.addEventListener('pointermove', (e) => {
+      if (grabbing === e.pointerId) {
+        this.dice.move(aim(e), performance.now());
+        return;
+      }
       const p = ptrs.get(e.pointerId);
       if (!p) {
         if (e.pointerType === 'mouse' && this.state) {
-          const index = pick(e);
+          const overDice = this.dice.hit(aim(e));
+          const index = overDice ? null : pick(e);
           this.placeFrame(this.hoverFrame, index);
-          canvas.style.cursor = index === null ? '' : 'pointer';
+          canvas.style.cursor = overDice ? 'grab' : index === null ? '' : 'pointer';
         }
         return;
       }
-      this.idle = 0;
-      if (ptrs.size === 1) {
-        this.yaw -= (e.clientX - p.x) * 0.006;
-        this.elev = Math.min(1.35, Math.max(0.25, this.elev + (e.clientY - p.y) * 0.004));
-      }
+      if (ptrs.size === 1) this.rig.drag(e.clientX - p.x, e.clientY - p.y);
       p.x = e.clientX;
       p.y = e.clientY;
-      if (ptrs.size === 2) {
-        const [a, b] = [...ptrs.values()];
-        if (!a || !b) return;
-        const d = Math.hypot(a.x - b.x, a.y - b.y);
-        if (pinch0) this.dist = clampDist((this.dist * pinch0) / d);
-        pinch0 = d;
+      const m = mid();
+      if (m) {
+        if (pinch0) this.rig.zoom(pinch0 / m.d);
+        if (mid0) this.rig.pan(m.x - mid0.x, mid0.y - m.y);
+        pinch0 = m.d;
+        mid0 = m;
       }
     });
     const up = (e: PointerEvent) => {
+      if (grabbing === e.pointerId) {
+        grabbing = null;
+        canvas.style.cursor = '';
+        this.onThrow(this.dice.release(performance.now()));
+        return;
+      }
       ptrs.delete(e.pointerId);
       pinch0 = 0;
+      mid0 = null;
       if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6 && this.state) {
         const index = pick(e);
         if (index !== null) this.onSpaceClick(index);
@@ -642,7 +603,8 @@ export class BoardScene {
       down = null;
     };
     canvas.addEventListener('pointerup', up);
-    canvas.addEventListener('pointercancel', () => {
+    canvas.addEventListener('pointercancel', (e) => {
+      if (grabbing === e.pointerId) up(e);
       ptrs.clear();
       down = null;
     });
@@ -651,7 +613,7 @@ export class BoardScene {
       'wheel',
       (e) => {
         e.preventDefault();
-        this.zoom(1 + Math.sign(e.deltaY) * 0.08);
+        this.rig.zoom(1 + Math.sign(e.deltaY) * 0.08);
       },
       { passive: false },
     );
@@ -664,18 +626,14 @@ export class BoardScene {
     this.camera.aspect = w / h;
     this.camera.fov = w < h ? 55 : 40;
     this.camera.updateProjectionMatrix();
+    if (this.baked) rescaleHalos(this.baked.halos, this.camera.fov);
   };
 
   private readonly frame = (now: number): void => {
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     this.time += dt;
-    this.idle += dt;
     if (!reduceMotion) {
-      if (this.autoRotate && this.idle > 3) {
-        this.goalYaw = null;
-        this.yaw += dt * 0.07;
-      }
       this.animateCity(dt, this.time);
       this.builder.animateBulbs(this.time);
       const pulse = 0.75 + 0.25 * Math.sin(this.time * 5);
@@ -684,36 +642,31 @@ export class BoardScene {
       }
     }
     this.animateTokens(dt);
-    this.animateDice(dt);
-    const ease = Math.min(1, dt * 4);
-    this.target.lerp(this.goal, ease);
-    if (this.goalDist !== null) this.dist += (this.goalDist - this.dist) * ease;
-    if (this.goalYaw !== null) this.yaw += (this.goalYaw - this.yaw) * ease;
-    if (this.goalElev !== null) this.elev += (this.goalElev - this.elev) * ease;
-    const { target, yaw, elev, dist } = this;
-    this.camera.position.set(
-      target.x + Math.sin(yaw) * Math.cos(elev) * dist,
-      target.y + Math.sin(elev) * dist,
-      target.z + Math.cos(yaw) * Math.cos(elev) * dist,
-    );
-    this.camera.lookAt(target);
+    this.dice.update(dt, this.time);
+    this.avatars.update(dt, this.time);
+    this.rig.update(dt, !reduceMotion);
+    this.sendPose(dt);
     this.renderer.render(this.scene, this.camera);
+    this.stats.frame(now);
     this.frameId = requestAnimationFrame(this.frame);
   };
 
+  /** Tells the others where we look, at most five times a second and only when it changed. */
+  private sendPose(dt: number): void {
+    this.poseTimer -= dt;
+    if (!this.state || this.poseTimer > 0) return;
+    this.poseTimer = 0.2;
+    const pose = this.rig.pose();
+    const key = JSON.stringify(pose);
+    if (key === this.lastPose) return;
+    this.lastPose = key;
+    this.onCamera(pose);
+  }
+
   dispose(): void {
     cancelAnimationFrame(this.frameId);
+    this.rig.dispose();
     removeEventListener('resize', this.resize);
     this.renderer.dispose();
   }
-}
-
-function clampDist(d: number): number {
-  return Math.min(22, Math.max(2.2, d));
-}
-
-/** Signed smallest rotation from a to b, in radians. */
-function shortestAngle(a: number, b: number): number {
-  const turn = Math.PI * 2;
-  return ((((b - a) % turn) + turn * 1.5) % turn) - Math.PI;
 }
