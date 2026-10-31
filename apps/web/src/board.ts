@@ -1,6 +1,6 @@
 /**
- * The 2D prototype board: an 11 x 11 grid with the 40 spaces around the edge and a centre
- * area for the game panel. Step 3 replaces this with the 3D board; it reads the same state.
+ * The 2D board: an 11 x 11 grid with the 40 spaces around the edge and a centre area for the
+ * game panel. Used only when the browser can't run the 3D board (no WebGL).
  */
 import { BOARD, isOwnable } from '@hometown/engine';
 import type { PublicState } from '@hometown/engine';

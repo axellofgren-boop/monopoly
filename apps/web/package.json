@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@hometown/engine": "0.1.0",
-    "@hometown/protocol": "0.1.0"
+    "@hometown/protocol": "0.1.0",
+    "three": "^0.154.0"
   },
   "devDependencies": {
+    "@types/three": "^0.154.0",
     "vite": "5.4.11"
   }
 }

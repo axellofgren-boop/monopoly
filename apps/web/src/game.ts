@@ -19,6 +19,8 @@ export interface GameView {
 
 export interface GameHandlers {
   send: (intent: Intent) => void;
+  /** Present when the 3D board is running; moves its camera. */
+  camera?: { view: (kind: 'board' | 'me') => void; zoom: (factor: number) => void };
   select: (space: number | null) => void;
   toggleTrade: (open: boolean) => void;
   propose: (to: string, give: TradeSide, get: TradeSide) => void;
@@ -37,6 +39,21 @@ export function appendLog(view: GameView, events: GameEvent[]): void {
 
 function secondsLeft(view: GameView, deadline: number): number {
   return Math.max(0, Math.ceil((deadline - (Date.now() + view.clockOffset)) / 1000));
+}
+
+/** A live countdown; tickCountdowns refreshes it without re-rendering the UI. */
+function countdown(view: GameView, deadline: number): HTMLElement {
+  return h(
+    'span',
+    { class: 'countdown', 'data-deadline': deadline },
+    String(secondsLeft(view, deadline)),
+  );
+}
+
+export function tickCountdowns(root: ParentNode, view: GameView): void {
+  for (const el of root.querySelectorAll<HTMLElement>('.countdown')) {
+    el.textContent = String(secondsLeft(view, Number(el.dataset.deadline)));
+  }
 }
 
 function controls(view: GameView, on: GameHandlers): HTMLElement {
@@ -77,7 +94,9 @@ function controls(view: GameView, on: GameHandlers): HTMLElement {
           ph.highBidder
             ? `High bid ${kr(ph.highBid)} by ${nameOf(state, ph.highBidder)}`
             : 'No bids yet',
-          ` · ${secondsLeft(view, ph.endsAt)} s`,
+          ' · ',
+          countdown(view, ph.endsAt),
+          ' s',
         ),
       );
       if (meP && !meP.bankrupt) {
@@ -105,7 +124,8 @@ function controls(view: GameView, on: GameHandlers): HTMLElement {
         h(
           'p',
           {},
-          `${secondsLeft(view, ph.endsAt)} s to raise money: tap your properties to sell or mortgage.`,
+          countdown(view, ph.endsAt),
+          ' s to raise money: tap your properties to sell or mortgage.',
         ),
       );
       if (ph.debtor === me) {
@@ -119,7 +139,9 @@ function controls(view: GameView, on: GameHandlers): HTMLElement {
           'p',
           { class: 'turn' },
           myTurn ? 'Your turn' : `${turnName}'s turn`,
-          ` · ${secondsLeft(view, state.turn.deadline)} s`,
+          ' · ',
+          countdown(view, state.turn.deadline),
+          ' s',
         ),
       );
       if (!myTurn || !meP) break;
@@ -433,7 +455,7 @@ function tradeForm(view: GameView, on: GameHandlers): HTMLElement | null {
 export function renderGame(view: GameView, on: GameHandlers): HTMLElement {
   const { state } = view;
   const dice = state.turn.lastDice;
-  const center = h(
+  const panel = h(
     'div',
     { class: 'panel' },
     h(
@@ -459,10 +481,37 @@ export function renderGame(view: GameView, on: GameHandlers): HTMLElement {
       view.log.slice(0, 8).map((l) => h('li', {}, l)),
     ),
   );
+  const players = h('aside', { class: 'side' }, h('h2', {}, 'Players'), playersList(view));
+  const camera = on.camera;
+  if (!camera) {
+    return h(
+      'div',
+      { class: 'game' },
+      renderBoard(state, panel, (i) => on.select(i)),
+      players,
+    );
+  }
+  // 3D: the board is the canvas behind; the UI floats over it.
   return h(
     'div',
-    { class: 'game' },
-    renderBoard(state, center, (i) => on.select(i)),
-    h('aside', { class: 'side' }, h('h2', {}, 'Players'), playersList(view)),
+    { class: 'hud' },
+    h('div', { class: 'hud-panel' }, panel),
+    players,
+    h(
+      'div',
+      { class: 'hud-views' },
+      btn('Whole board', () => camera.view('board')),
+      btn('My token', () => camera.view('me')),
+      h(
+        'button',
+        { class: 'btn icon', 'aria-label': 'Zoom in', onclick: () => camera.zoom(0.85) },
+        '+',
+      ),
+      h(
+        'button',
+        { class: 'btn icon', 'aria-label': 'Zoom out', onclick: () => camera.zoom(1 / 0.85) },
+        '−',
+      ),
+    ),
   );
 }
