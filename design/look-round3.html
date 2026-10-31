@@ -1,0 +1,478 @@
+<title>Hometown Board Looks</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Instrument+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: one full-screen 3D scene; a collapsible note card floats bottom-left, zoom buttons bottom-right. Single dark look by choice (night scene). */
+:root{
+  --night:#0b1430; --panel:rgba(14,24,52,.86); --fg:#f2f5ff; --muted:#b9c4e6; --gold:#ffd36b; --pink:#ff6fae; --line:rgba(255,255,255,.14);
+  --display:"Bricolage Grotesque","Avenir Next",system-ui,sans-serif;
+  --body:"Instrument Sans","Segoe UI",system-ui,sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--night);color:var(--fg);font-family:var(--body);overflow:hidden}
+#scene{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#scene:active{cursor:grabbing}
+.panel{position:fixed;left:max(16px, env(safe-area-inset-left, 0px));bottom:calc(16px + env(safe-area-inset-bottom, 0px));width:min(380px, calc(100% - 32px));background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:16px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;max-height:calc(100% - 40px);overflow:auto}
+.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);font-weight:600}
+h1{font-family:var(--display);font-weight:800;font-size:30px;line-height:1;margin:0}
+.panel p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
+.panel h2{font-family:var(--display);font-size:15px;margin:4px 0 0}
+.panel ul{margin:0;padding-left:18px;color:var(--muted);font-size:13.5px;line-height:1.5}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+button{font:inherit;color:var(--fg);background:rgba(255,255,255,.1);border:1px solid var(--line);border-radius:999px;cursor:pointer}
+button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+#toggle{font-size:12px;padding:4px 10px;white-space:nowrap}
+.panel.collapsed .more{display:none}
+.zoom{position:fixed;right:max(16px, env(safe-area-inset-right, 0px));bottom:calc(16px + env(safe-area-inset-bottom, 0px));display:flex;flex-direction:column;gap:8px}
+.zoom button{width:42px;height:42px;font-size:20px;font-weight:600;background:var(--panel)}
+@media (max-width:560px){.panel{bottom:calc(70px + env(safe-area-inset-bottom, 0px))}.zoom{flex-direction:row}}
+.views{position:fixed;top:calc(16px + env(safe-area-inset-top, 0px));right:max(16px, env(safe-area-inset-right, 0px));display:flex;gap:8px}
+.views button{padding:7px 14px;font-size:13px;font-weight:600;background:var(--panel)}
+.fail{position:fixed;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--fg)}
+</style>
+
+<canvas id="scene" aria-label="3D preview of the Hometown board: a snowy Stockholm evening with landmarks in the middle"></canvas>
+
+<aside class="panel" id="panel">
+  <div class="top">
+    <div>
+      <div class="eyebrow">Look, round 3 · natural winter evening</div>
+      <h1>Hometown</h1>
+    </div>
+    <button id="toggle" aria-expanded="true" aria-controls="more">Hide notes</button>
+  </div>
+  <div class="more" id="more" style="display:flex;flex-direction:column;gap:10px">
+    <p>Playful colours on a snowy Stockholm evening, now with natural lighting and higher-detail models. Drag to spin and tilt, scroll or pinch to zoom.</p>
+    <h2>What's new</h2>
+    <ul>
+      <li>Detailed landmarks: Stadshuset with tower and three crowns, a lit-up Globen, Kaknästornet with its blinking light, the palace courtyard, step-gabled Gamla stan houses, Riddarholmskyrkan's iron spire and the glowing obelisk on Sergels torg</li>
+      <li>Djurgården with the Vasa ship and Gröna Lund: Ferris wheel, carousel and drop tower, all moving</li>
+      <li>Player tokens on Start: Dala horse, kanelbulle and moose (tap Player tokens to fly there)</li>
+      <li>Natural light and shadows, sharper geometry and a higher-resolution board</li>
+      <li>Facades with framed windows, curtains, sills and cornices; stone quay walls; lamp-lit promenades; Stadshuset's corner turrets</li>
+      <li>Snowfall, northern lights, ferries crossing the water, red cottages around the board</li>
+      <li>Houses and a hotel on the Aspudden row to show building</li>
+    </ul>
+    <p>Street names and prices are still placeholders.</p>
+  </div>
+</aside>
+<div class="views"><button id="vCity">Whole board</button><button id="vTok">Player tokens</button></div>
+<div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+const panel=document.getElementById('panel'), tog=document.getElementById('toggle'), more=document.getElementById('more');
+tog.addEventListener('click',()=>{const c=panel.classList.toggle('collapsed');more.style.display=c?'none':'flex';tog.textContent=c?'Show notes':'Hide notes';tog.setAttribute('aria-expanded',String(!c))});
+if(innerWidth<560){panel.classList.add('collapsed');more.style.display='none';tog.textContent='Show notes';tog.setAttribute('aria-expanded','false')}
+if(!window.THREE){const d=document.createElement('div');d.className='fail';d.textContent='The 3D preview could not load. Try reloading the page.';document.body.appendChild(d);return}
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// seeded random so the scene is the same every load
+let seed=7;const rnd=(a=0,b=1)=>{seed=(seed*16807)%2147483647;return a+(seed/2147483647)*(b-a)};
+
+// ---------- renderer ----------
+const canvas=document.getElementById('scene');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.outputEncoding=THREE.sRGBEncoding;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.setPixelRatio(Math.min(devicePixelRatio,2.5));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.72;
+const scene=new THREE.Scene();
+const cam=new THREE.PerspectiveCamera(40,1,0.1,300);
+scene.fog=new THREE.Fog(0x1a2456,18,48);
+{ // sky gradient
+  const c=document.createElement('canvas');c.width=4;c.height=256;const x=c.getContext('2d');const g=x.createLinearGradient(0,0,0,256);
+  g.addColorStop(0,'#070d26');g.addColorStop(.55,'#1b2560');g.addColorStop(1,'#4a3a7a');x.fillStyle=g;x.fillRect(0,0,4,256);
+  const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;scene.background=t;
+}
+
+// ---------- materials ----------
+const grad=new THREE.DataTexture(new Uint8Array([55,110,170,230]),4,1,THREE.LuminanceFormat);grad.minFilter=grad.magFilter=THREE.NearestFilter;grad.needsUpdate=true;
+const T=(color,o={})=>new THREE.MeshStandardMaterial({color,roughness:.72,metalness:0,...o});
+const GLOW=(color,i=1)=>({emissive:new THREE.Color(color),emissiveIntensity:i});
+const BASIC=c=>new THREE.MeshBasicMaterial({color:c});
+const OUTM=new THREE.MeshBasicMaterial({color:0x0a1030,side:THREE.BackSide});
+const SNOW=T(0xd3dcee), SNOW2=T(0xb9c6de);
+// Facade textures: one 512px tile = 4x4 window bays with frames, sills and lintels.
+// Colour map and emissive (lit window) map share a layout so they line up. Cached per colour + layout.
+const LAYOUTS=[0,1,2].map(()=>Array.from({length:16},()=>rnd()<.66?(rnd()<.8?'#ffcf7a':rnd()<.5?'#a8dcff':'#ffb0d4'):null));
+const facadeCache=new Map();
+function facadeTextures(color,li){
+  const key=color+'/'+li;if(facadeCache.has(key))return facadeCache.get(key);
+  const N=512,cell=N/4,base=new THREE.Color(color),hex='#'+base.getHexString();
+  const shade=k=>'#'+base.clone().multiplyScalar(k).getHexString();
+  const a=document.createElement('canvas'),e=document.createElement('canvas');a.width=a.height=e.width=e.height=N;
+  const x=a.getContext('2d'),y=e.getContext('2d');x.fillStyle=hex;x.fillRect(0,0,N,N);y.fillStyle='#000';y.fillRect(0,0,N,N);
+  for(let i=0;i<900;i++){x.fillStyle=rnd()<.5?shade(.92):shade(1.06);x.fillRect(rnd(0,N),rnd(0,N),rnd(2,6),rnd(1,3))} // plaster grain
+  for(let r=0;r<4;r++){x.fillStyle=shade(.82);x.fillRect(0,r*cell+cell-6,N,3)} // floor bands
+  LAYOUTS[li].forEach((lit,i)=>{const cx=(i%4)*cell,cy=Math.floor(i/4)*cell,wx=cx+cell*.28,wy=cy+cell*.18,ww=cell*.44,wh=cell*.56;
+    x.fillStyle=shade(1.18);x.fillRect(wx-6,wy-10,ww+12,8);                 // lintel
+    x.fillStyle='#f4efe6';x.fillRect(wx-4,wy-4,ww+8,wh+8);                  // frame
+    x.fillStyle=lit?lit:'#1c2238';x.fillRect(wx,wy,ww,wh);                   // glass
+    if(lit){x.fillStyle='rgba(120,60,40,.35)';x.fillRect(wx,wy,ww*.22,wh);x.fillRect(wx+ww*.78,wy,ww*.22,wh)} // curtains
+    x.fillStyle='#f4efe6';x.fillRect(wx+ww/2-2,wy,4,wh);x.fillRect(wx,wy+wh*.4-2,ww,4); // mullions
+    x.fillStyle=shade(.7);x.fillRect(wx-8,wy+wh+4,ww+16,6);                 // sill
+    if(lit){const g=y.createRadialGradient(wx+ww/2,wy+wh/2,2,wx+ww/2,wy+wh/2,ww*.9);g.addColorStop(0,lit);g.addColorStop(1,'#000');y.fillStyle=g;y.fillRect(wx,wy,ww,wh);
+      y.fillStyle='#000';y.fillRect(wx+ww/2-2,wy,4,wh);y.fillRect(wx,wy+wh*.4-2,ww,4)}});
+  const mk=c=>{const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=8;return t};
+  const map=mk(a);map.encoding=THREE.sRGBEncoding;const em=mk(e);em.encoding=THREE.sRGBEncoding;
+  const out={map,em};facadeCache.set(key,out);return out}
+function facade(color,w,h){const {map,em}=facadeTextures(color,Math.floor(rnd(0,3)));
+  const m=map.clone(),e=em.clone();m.needsUpdate=e.needsUpdate=true;const rx=Math.max(.5,Math.round(w*2.4)/4),ry=Math.max(.5,Math.round(h*2.4)/4);m.repeat.set(rx,ry);e.repeat.set(rx,ry);
+  return T(0xffffff,{map:m,emissive:new THREE.Color(0xffffff),emissiveMap:e,emissiveIntensity:1.3,roughness:.85})}
+
+// ---------- mesh helpers ----------
+function mesh(geo,mat,x=0,y=0,z=0,o={}){
+  const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);if(o.ry)m.rotation.y=o.ry;if(o.rx)m.rotation.x=o.rx;if(o.rz)m.rotation.z=o.rz;
+  m.castShadow=o.shadow!==false;m.receiveShadow=true;(o.parent||scene).add(m);
+  if(o.outline===true){geo.computeBoundingBox();const s=new THREE.Vector3();geo.boundingBox.getSize(s);
+    if(Math.min(s.x,s.y,s.z)>0.05){const t=o.ol||0.018;const ol=new THREE.Mesh(geo,OUTM);ol.scale.set(1+2*t/s.x,1+2*t/s.y,1+2*t/s.z);m.add(ol)}}
+  return m;
+}
+const boxCache=new Map();
+const B=(w,h,d)=>{const k=w+','+h+','+d;if(!boxCache.has(k))boxCache.set(k,new THREE.BoxGeometry(w,h,d));return boxCache.get(k)};
+function capsule(r,h,seg=12){const pts=[];for(let i=0;i<=8;i++){const a=-Math.PI/2+i*Math.PI/16;pts.push(new THREE.Vector2(Math.max(1e-4,r*Math.cos(a)),-h/2+r*Math.sin(a)))}
+  for(let i=0;i<=8;i++){const a=i*Math.PI/16;pts.push(new THREE.Vector2(Math.max(1e-4,r*Math.cos(a)),h/2+r*Math.sin(a)))}return new THREE.LatheGeometry(pts,seg)}
+const ellipsoid=(r,sx,sy,sz)=>{const g=new THREE.SphereGeometry(r,40,28);g.scale(sx,sy,sz);return g};
+const CYL=(rt,rb,h,s=40)=>new THREE.CylinderGeometry(rt,rb,h,s);
+function prism(w,h,d){const s=new THREE.Shape();s.moveTo(-w/2,0);s.lineTo(w/2,0);s.lineTo(0,h);s.lineTo(-w/2,0);const g=new THREE.ExtrudeGeometry(s,{depth:d,bevelEnabled:false});g.translate(0,0,-d/2);return g}
+function snowBox(x,y,z,w,h,d,color,o={}){const side=o.plain?T(color):facade(color,w,h);const m=mesh(B(w,h,d),[side,side,SNOW,SNOW,side,side],x,y+h/2,z,o);
+  if(!o.plain&&w>.15&&d>.15){const trim=T(new THREE.Color(color).multiplyScalar(.75).getHex());
+    mesh(B(w+.03,.025,d+.03),trim,0,h/2-.012,0,{parent:m});mesh(B(w+.02,.04,d+.02),trim,0,-h/2+.02,0,{parent:m});
+    mesh(B(w+.035,.012,d+.035),SNOW,0,h/2+.004,0,{parent:m})}
+  return m}
+
+// blinking bulbs: shared materials per colour, animated in the loop
+const BULB_COLORS=[0xff5f8f,0xffd34d,0x5fe0ff,0x7dff9a];
+const bulbMats=BULB_COLORS.map(c=>new THREE.MeshBasicMaterial({color:c}));
+const bulbGeo=new THREE.SphereGeometry(1,14,10);
+const haloTex=(()=>{const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d');const g=x.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(255,255,255,.9)');g.addColorStop(.25,'rgba(255,255,255,.35)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,64,64);return new THREE.CanvasTexture(c)})();
+const haloMats=BULB_COLORS.map(c=>new THREE.SpriteMaterial({map:haloTex,color:c,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+function bulb(x,y,z,i,r=0.035,parent){const m=new THREE.Mesh(bulbGeo,bulbMats[i%4]);const h=new THREE.Sprite(haloMats[i%4]);h.scale.setScalar(6);m.add(h);m.scale.setScalar(r);m.position.set(x,y,z);(parent||scene).add(m);return m}
+
+// ---------- lights ----------
+scene.add(new THREE.HemisphereLight(0x5f70c0,0x140f34,0.32));
+const moon=new THREE.DirectionalLight(0xa8b8f0,0.5);moon.position.set(-9,15,7);moon.castShadow=true;moon.shadow.mapSize.set(4096,4096);moon.shadow.radius=3;
+Object.assign(moon.shadow.camera,{left:-8,right:8,top:8,bottom:-8,near:1,far:45});moon.shadow.bias=-0.0006;scene.add(moon);
+const warm=(x,y,z,c,i=1.4,d=4)=>{const l=new THREE.PointLight(c,i,d);l.position.set(x,y,z);scene.add(l)};
+
+// ---------- board ----------
+const P=(g,n,p)=>({t:'prop',g,n,p}),S=n=>({t:'station',n}),C=()=>({t:'card',n:'Händelse'}),M=()=>({t:'party',n:'Minispel'}),TX=(n,p)=>({t:'tax',n,p}),U=n=>({t:'util',n});
+const sides=[
+ [P(0,'Liljeholmen',60),C(),P(0,'Hammarby sjöstad',60),TX('Skatteverket',200),S('Gullmarsplan'),P(1,'Aspudden',100),M(),P(1,'Midsommar-kransen',100),P(1,'Hornstull',120)],
+ [P(2,'Fridhemsplan',140),U('Elverket'),P(2,'Rålambshov',140),P(2,'Kungsholmen',160),S('Odenplan'),P(3,'Sankt Eriksplan',180),C(),P(3,'Vasastan',180),P(3,'Tegnér-lunden',200)],
+ [P(4,'Mariatorget',220),M(),P(4,'Nytorget',220),P(4,'Slussen',240),S('T-Centralen'),P(5,'Skeppsholmen',260),P(5,'Stortorget',260),U('Vattenverket'),P(5,'Gamla stan',280)],
+ [P(6,'Hötorget',300),P(6,'Sergels torg',300),C(),P(6,'Kungs-trädgården',320),S('Ropsten'),M(),P(7,'Östermalm',350),TX('Trängselskatt',100),P(7,'Djurgården',400)]
+];
+const corners=[['START','#ffd34d','+200 kr'],['ARRESTEN','#ff8f6b',''],['FIKA','#7fe0c4','Vila'],['Ö-HOPP!','#c49bff','Välj ö']];
+const GROUPS=['#a8653f','#4fc3ff','#ff5fa8','#ff9a2e','#ff4747','#ffd02e','#36d68b','#5b7bff'];
+function boardTexture(){
+  const N=2048,c=Math.round(N*.13),w=(N-2*c)/9;const cv=document.createElement('canvas');cv.width=cv.height=N*2;const x=cv.getContext('2d');x.scale(2,2);
+  x.fillStyle='#f7fbff';x.fillRect(0,0,N,N);x.fillStyle='#cfe0f2';x.fillRect(c,c,N-2*c,N-2*c);
+  const F=f=>`${f} "Instrument Sans","Segoe UI",sans-serif`;x.strokeStyle='#1c2c55';x.lineWidth=5;
+  for(let s=0;s<4;s++){x.save();x.translate(N/2,N/2);x.rotate(s*Math.PI/2);x.translate(-N/2,-N/2);
+    const [label,col,sub]=corners[s];x.fillStyle=col;x.fillRect(N-c,N-c,c,c);x.strokeRect(N-c,N-c,c,c);
+    x.save();x.translate(N-c/2,N-c/2);x.rotate(-Math.PI/4);x.fillStyle='#16224a';x.textAlign='center';x.textBaseline='middle';x.font=F('800 44px');x.fillText(label,0,sub?-16:0);
+    if(sub){x.font=F('600 26px');x.fillText(sub,0,26)}x.restore();
+    sides[s].forEach((sp,i)=>{const x0=N-c-(i+1)*w,y0=N-c;x.strokeRect(x0,y0,w,c);let ty=y0+20;
+      if(sp.t==='prop'){x.fillStyle=GROUPS[sp.g];x.fillRect(x0+2,y0+2,w-4,c*.24);x.strokeRect(x0,y0,w,c*.24);ty=y0+c*.24+16}
+      x.fillStyle='#16224a';x.textAlign='center';x.textBaseline='top';x.font=F('600 23px');
+      const words=sp.n.toUpperCase();let lines;
+      if(words.includes('-'))lines=words.split('-').map((l,k,a)=>k<a.length-1?l+'-':l);else{lines=[];let cur='';for(const wd of words.split(' ')){const t=cur?cur+' '+wd:wd;if(x.measureText(t).width>w-18&&cur){lines.push(cur);cur=wd}else cur=t}lines.push(cur)}
+      let fs=23;while(fs>14&&lines.some(l=>x.measureText(l).width>w-12)){fs--;x.font=F('600 '+fs+'px')}lines.forEach((l,k)=>x.fillText(l,x0+w/2,ty+k*27));
+      const cy=y0+c*.62;x.textBaseline='middle';
+      if(sp.t==='station'){x.fillStyle='#1b7fd1';x.beginPath();x.arc(x0+w/2,cy,32,0,7);x.fill();x.fillStyle='#fff';x.font=F('800 42px');x.fillText('T',x0+w/2,cy+2)}
+      else if(sp.t==='card'){x.fillStyle='#ff5fa8';x.font=F('800 64px');x.fillText('?',x0+w/2,cy)}
+      else if(sp.t==='party'){x.fillStyle='#ffb800';x.font=F('800 64px');x.fillText('★',x0+w/2,cy)}
+      else if(sp.t==='util'){x.fillStyle='#2fa8e8';x.font=F('800 54px');x.fillText('⚡',x0+w/2,cy)}
+      else if(sp.t==='tax'){x.fillStyle='#16224a';x.font=F('800 44px');x.fillText('§',x0+w/2,cy)}
+      const price=sp.p?sp.p+' kr':sp.t==='station'?'200 kr':sp.t==='util'?'150 kr':'';
+      x.fillStyle='#16224a';x.textBaseline='alphabetic';x.font=F('600 23px');if(price)x.fillText(sp.t==='tax'?'Betala '+price:price,x0+w/2,y0+c-16)});
+    x.restore()}
+  x.lineWidth=8;x.strokeRect(4,4,N-8,N-8);x.strokeRect(c,c,N-2*c,N-2*c);
+  const t=new THREE.CanvasTexture(cv);t.encoding=THREE.sRGBEncoding;t.anisotropy=renderer.capabilities.getMaxAnisotropy();return t}
+
+// ground, frame, board top
+mesh(CYL(45,45,.2,96),T(0x56659a),0,-.6,0,{outline:false});
+mesh(B(10.9,.35,10.9),T(0x2a3f8f),0,-.33,0,{ol:.03});
+mesh(B(10.5,.12,10.5),T(0xffc94d,GLOW(0xffb000,.15)),0,-.1,0,{outline:false});
+{const top=new THREE.Mesh(new THREE.PlaneGeometry(10,10),T(0xdfe3ee,{map:boardTexture()}));top.rotation.x=-Math.PI/2;top.position.y=-.035;top.receiveShadow=true;scene.add(top)}
+// bulbs around the frame
+for(let s=0;s<4;s++)for(let i=0;i<22;i++){const p=-5.3+i*(10.6/21);const [x,z]=[[p,5.45],[-5.45,-p],[-p,-5.45],[5.45,p]][s];bulb(x,-.1,z,i+s,.05)}
+
+// ---------- water and islands (centre is -3.7..3.7) ----------
+const waterMat=T(0x123a70,{roughness:.25,metalness:.2,emissive:new THREE.Color(0x0a2a60),emissiveIntensity:.5});
+mesh(B(7.36,.06,7.36),waterMat,0,-.02,0,{outline:false,shadow:false});
+const landTop=T(0xd6dfef);const landSide=(()=>{const c=document.createElement('canvas');c.width=512;c.height=64;const x=c.getContext('2d');x.fillStyle='#6d655e';x.fillRect(0,0,512,64);
+  for(let r=0;r<4;r++)for(let i=0;i<20;i++){const off=r%2?13:0;x.fillStyle=['#8f857b','#7f766d','#9b9187','#857b70'][Math.floor(rnd(0,4))];x.fillRect(i*26+off-13+1,r*16+1,24,14)}
+  x.fillStyle='#e9eef6';x.fillRect(0,0,512,6);const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.wrapS=THREE.RepeatWrapping;t.repeat.set(4,1);return T(0xffffff,{map:t,roughness:.95})})();
+const island=(x,z,w,d)=>mesh(B(w,.16,d),[landSide,landSide,landTop,landTop,landSide,landSide],x,.05,z,{ol:.012});
+island(0,-2.4,7.3,2.5);island(0,2.4,7.3,2.5);island(-.4,0,2.3,1.5);island(2.78,0,1.75,1.4);
+// ice floes
+for(let i=0;i<9;i++){const a=[[-2.6,-.95],[-1.9,1.0],[1.4,-.95],[2.2,1.0],[-3.2,.3],[1.0,.6],[3.4,-.9],[-2.9,-.6],[3.3,1.0]][i];mesh(CYL(.1+rnd()*.08,.12+rnd()*.08,.03,7),SNOW,a[0],.02,a[1],{outline:false,shadow:false})}
+// bridges with lamps
+function bridge(x,z,len,along){const g=along==='z'?B(.32,.07,len):B(len,.07,.32);mesh(g,T(0x9aa3b8),x,.17,z,{ol:.012});
+  for(let i=0;i<3;i++){const t=-len/2+.08+i*(len-.16)/2;const [bx,bz]=along==='z'?[x+.17,z+t]:[x+t,z+.17];mesh(CYL(.012,.012,.16,6),T(0x2a2f45),bx,.29,bz,{outline:false});bulb(bx,.38,bz,1,.03)}}
+bridge(-.4,-.95,.6,'z');bridge(-.4,.95,.6,'z');bridge(1.32,-.45,1.3,'x');
+
+// ---------- buildings ----------
+function gableHouse(x,z,w,d,h,color,roofColor,o={}){
+  const g=new THREE.Group();g.position.set(x,o.y??.13,z);if(o.ry)g.rotation.y=o.ry;scene.add(g);
+  snowBox(0,0,0,w,h,d,color,{parent:g});
+  const rh=w*.55;mesh(prism(w*1.12,rh+.03,d*1.08),T(roofColor),0,h-.02,0,{parent:g,ol:.012});
+  mesh(prism(w*1.0,rh,d*1.1),SNOW,0,h+.02,0,{parent:g,outline:false});
+  if(o.steps){[[.85,0],[.6,1],[.35,2]].forEach(([k,i])=>mesh(B(w*k,.08,.05),T(color),0,h+.04+i*.08,d/2+.01,{parent:g,outline:false}))}
+  if(o.chimney!==false)mesh(B(.06,.16,.06),T(0x7a3b2e),w*.25,h+rh*.55,-d*.15,{parent:g,outline:false});
+  mesh(B(w*.28,h*.32,.02),T(0x5a3420,GLOW(0xffb35a,.35)),0,h*.16,d/2+.011,{parent:g,outline:false}); // door
+  return g}
+
+// Stadshuset
+{const brick=0xc4553a;const sx=-2.45,sz=-1.95;
+ snowBox(sx,.13,sz-.45,1.55,.5,.34,brick);snowBox(sx-.62,.13,sz,.32,.5,.95,brick);snowBox(sx+.62,.13,sz,.32,.5,.95,brick);
+ for(let i=0;i<5;i++)mesh(B(.13,.2,.03),T(0x2a1810,GLOW(0xffa040,.8)),sx-.35+i*.175,.23,sz-.27,{outline:false}); // arcade
+ const tx=-1.78,tz=-1.62;snowBox(tx,.13,tz,.36,1.55,.36,brick);
+ mesh(B(.46,.05,.46),T(0x58b39a),tx,1.7,tz);
+ mesh(B(.28,.36,.28),T(0x58b39a,GLOW(0x2a8f74,.3)),tx,1.9,tz);
+ for(let i=0;i<4;i++){const a=i*Math.PI/2;mesh(B(.08,.16,.02),T(0x1a1a10,GLOW(0xffd36b,1)),tx+Math.sin(a)*.141,1.92,tz+Math.cos(a)*.141,{ry:a,outline:false})}
+ mesh(new THREE.ConeGeometry(.2,.2,4),T(0x58b39a),tx,2.18,tz,{ry:Math.PI/4});
+ mesh(CYL(.015,.015,.25,6),T(0xffd36b),tx,2.4,tz,{outline:false});
+ const goldM=T(0xffd36b,GLOW(0xffb000,.7));
+ [[0,.62],[-.11,.5],[.11,.5]].forEach(([dx,dy])=>{const crown=new THREE.Group();crown.position.set(tx+dx,1.92+dy,tz);scene.add(crown);
+   mesh(new THREE.TorusGeometry(.055,.018,6,14),goldM,0,0,0,{parent:crown,rx:Math.PI/2,outline:false});
+   for(let k=0;k<5;k++){const a=k/5*Math.PI*2;mesh(new THREE.ConeGeometry(.018,.06,4),goldM,Math.cos(a)*.055,.035,Math.sin(a)*.055,{parent:crown,outline:false})}
+   mesh(new THREE.SphereGeometry(.02,8,6),goldM,0,.08,0,{parent:crown,outline:false})});
+ warm(tx,1.4,tz+.8,0xffa860,1.6,3.5)}
+
+// Stadshuset corner turrets with copper caps and gold tips
+{const copper=T(0x58b39a,{roughness:.5,metalness:.3}),gold=T(0xffd36b,{roughness:.3,metalness:.8,emissive:new THREE.Color(0xffb000),emissiveIntensity:.3});
+ [[-3.2,-2.4],[-1.72,-2.4],[-3.2,-1.5]].forEach(([x,z])=>{snowBox(x,.13,z,.14,.72,.14,0xc4553a);
+   mesh(new THREE.ConeGeometry(.1,.26,4),copper,x,.98,z,{ry:Math.PI/4});mesh(new THREE.SphereGeometry(.018,16,12),gold,x,1.13,z)});
+ for(let i=0;i<6;i++)mesh(new THREE.CylinderGeometry(.012,.012,.2,12),T(0xe8d8c0),-2.85+i*.17,.23,-1.66)}
+// quay promenades: lamp posts with warm halos
+{const post=T(0x232a3d,{roughness:.4,metalness:.6}),lampM=BASIC(0xffe2a0);
+ const halo=new THREE.SpriteMaterial({map:haloTex,color:0xffcf80,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false});
+ const lamp=(x,z)=>{mesh(CYL(.01,.014,.34,10),post,x,.3,z);mesh(CYL(.03,.02,.04,12),post,x,.48,z);const b=mesh(new THREE.SphereGeometry(.022,16,12),lampM,x,.45,z,{shadow:false});
+   const h=new THREE.Sprite(halo);h.scale.setScalar(.35);b.add(h);b.scale.setScalar(1)};
+ for(let x=-1.3;x<=3.4;x+=.5)lamp(x,-1.22);for(let x=-3.4;x<=1.3;x+=.5)lamp(x,1.22);for(let z=-.6;z<=.6;z+=.4)lamp(1.97,z)}
+
+// Kaknästornet
+{const kx=3.05,kz=-3.0,conc=T(0xd7d9e2);
+ mesh(CYL(.12,.2,3.0,4),conc,kx,1.62,kz,{ry:Math.PI/4});
+ [-1,1].forEach(s=>{mesh(B(.04,2.9,.06),T(0xbcc0cc),kx+s*.15,1.6,kz,{outline:false});mesh(B(.06,2.9,.04),T(0xbcc0cc),kx,1.6,kz+s*.15,{outline:false})});
+ snowBox(kx,3.05,kz,.5,.42,.5,0x9aa4b8);mesh(B(.56,.06,.56),T(0xd7d9e2),kx,3.5,kz);snowBox(kx,3.53,kz,.36,.18,.36,0x9aa4b8);
+ mesh(CYL(.025,.03,.8,8),T(0xe8e8f0),kx,4.1,kz,{outline:false});
+ [.3,.55].forEach(h=>mesh(CYL(.06,.06,.03,8),T(0xff4455),kx,3.8+h,kz,{outline:false}))}
+const kakLight=new THREE.Mesh(new THREE.SphereGeometry(.06,10,8),BASIC(0xff3344));kakLight.position.set(3.05,4.53,-3.0);scene.add(kakLight);
+
+// Sergels torg: chequered plaza + glowing glass obelisk
+{const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');for(let i=0;i<8;i++)for(let j=0;j<8;j++){x.fillStyle=((i+j)%2)?'#1a1a22':'#f3f3f6';x.beginPath();x.moveTo(i*16,j*16);x.lineTo(i*16+16,j*16);x.lineTo(i*16+(j%2?16:0),j*16+16);x.fill();x.fillStyle=((i+j)%2)?'#f3f3f6':'#1a1a22';x.beginPath();x.moveTo(i*16+(j%2?0:16),j*16+16);x.lineTo(i*16,j*16+16);x.lineTo(i*16+16,j*16+16);x.lineTo(i*16+(j%2?16:0),j*16);x.fill()}
+ const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;mesh(CYL(.5,.5,.03,32),T(0xffffff,{map:t}),.75,.145,-1.75,{outline:false});
+ mesh(CYL(.09,.13,1.5,4),new THREE.MeshBasicMaterial({color:0x9fe6ff,transparent:true,opacity:.9}),.75,.9,-1.75,{ry:Math.PI/4});
+ mesh(CYL(.6,.6,.06,32),T(0x4a5a7a),.75,.15,-1.75,{outline:false}).scale.set(1,.5,1);
+ warm(.75,1.2,-1.75,0x7fd8ff,1.5,3)}
+
+// Norrmalm skyline
+[[-.6,-3.2,.5,.45,1.25,0x5b7bff],[-.05,-3.25,.45,.5,1.75,0xff6fae],[.55,-3.2,.5,.45,1.1,0x36d6b0],[1.15,-3.25,.45,.45,1.45,0xffa83d],[1.75,-3.15,.5,.5,.95,0x8f6bff],[-.55,-2.5,.42,.42,.8,0xff8a5c],[1.6,-2.4,.45,.42,.75,0x4fc3ff],[2.2,-2.6,.4,.4,1.05,0xff5f7a],[-1.1,-2.85,.35,.5,.6,0xffd04d]]
+ .forEach(([x,z,w,d,h,c])=>{snowBox(x,.13,z,w,h,d,c);if(h>1.2){mesh(B(w*.6,.18,d*.6),T(c),x,.13+h+.09,z);mesh(CYL(.01,.01,.3,4),T(0xffffff),x,.13+h+.33,z,{outline:false});bulb(x,.13+h+.5,z,0,.03)}});
+// Kungsholmen houses west of Stadshuset
+[[-3.35,-3.25,0xffb84d],[-2.85,-3.3,0x4fc3ff],[-2.35,-3.25,0xff6f9a],[-1.85,-3.3,0x7fe0a0]].forEach(([x,z,c])=>gableHouse(x,z,.4,.36,.45,c,0x3a4a8a));
+
+// Kungliga slottet (courtyard palace)
+{const px=-.62,pz=-.32,c=0xe6c27a;snowBox(px,.13,pz-.26,1.05,.36,.2,c);snowBox(px,.13,pz+.26,1.05,.36,.2,c);snowBox(px-.43,.13,pz,.2,.36,.32,c);snowBox(px+.43,.13,pz,.2,.36,.32,c);
+ [[-.52,-.26],[.52,-.26],[-.52,.26],[.52,.26]].forEach(([dx,dz])=>mesh(B(.06,.2,.06),T(0xffd36b,GLOW(0xffd36b,.5)),px+dx,.6,pz+dz,{outline:false}));
+ const flag=mesh(B(.18,.1,.01),T(0x1f6fd1),px+.09,.98,pz-.26,{outline:false});mesh(B(.18,.025,.012),T(0xffd02e),px+.09,.98,pz-.26,{outline:false});mesh(B(.025,.1,.012),T(0xffd02e),px+.05,.98,pz-.26,{outline:false});
+ mesh(CYL(.008,.008,.5,4),T(0xffffff),px,.75,pz-.26,{outline:false});warm(px,1.0,pz+.6,0xffc070,1.3,2.6)}
+// Gamla stan step-gable houses
+[[-1.38,0xffa63d],[-1.12,0xffd34d],[-.86,0xff6f5c],[-.6,0xff9ec2],[-.34,0x8fd96b],[-.08,0xffb86b]].forEach(([x,c],i)=>gableHouse(x,.42,.24,.34,.42+(i%3)*.08,c,0x8a3a2a,{steps:true,chimney:i%2===0}));
+// Storkyrkan tower
+{const x=.2,z=.25;snowBox(x,.13,z,.2,.75,.2,0xe9b37a,{plain:true});mesh(new THREE.SphereGeometry(.13,12,8,0,Math.PI*2,0,Math.PI/2),T(0x58b39a),x,.88,z);mesh(new THREE.ConeGeometry(.04,.25,6),T(0x58b39a),x,1.12,z);
+ mesh(B(.08,.12,.02),T(0x111,GLOW(0xffd36b,1)),x,.6,z+.105,{outline:false})}
+// Riddarholmskyrkan with iron openwork spire
+{const x=.48,z=-.38;snowBox(x,.13,z,.26,.42,.42,0xb84a32,{plain:true});
+ const sp=mesh(new THREE.ConeGeometry(.12,1.25,8,10,true),T(0x2a3350),x,1.17,z);
+ const wf=new THREE.Mesh(new THREE.ConeGeometry(.125,1.26,8,6,true),new THREE.MeshBasicMaterial({color:0x8fa8d8,wireframe:true}));wf.position.set(x,1.17,z);scene.add(wf);
+ warm(x,.9,z+.5,0x9fb8ff,1,2)}
+
+// Globen with lattice and glow
+{const gx=2.3,gz=2.55;const dome=new THREE.SphereGeometry(.85,96,56,0,Math.PI*2,0,Math.PI*.58);
+ mesh(dome,T(0xf5f8ff,GLOW(0x9fd6ff,.35)),gx,.05,gz,{ol:.02});
+ const lat=new THREE.Mesh(new THREE.SphereGeometry(.862,24,12,0,Math.PI*2,0,Math.PI*.58),new THREE.MeshBasicMaterial({color:0x6fb8ff,wireframe:true}));lat.position.set(gx,.05,gz);scene.add(lat);
+ mesh(B(.5,.18,.3),facade(0x5b7bff,.5,.18),gx-.65,.22,gz-.55,{ry:.7});
+ for(let i=0;i<14;i++){const a=i/14*Math.PI*2;bulb(gx+Math.cos(a)*.78,.38,gz+Math.sin(a)*.78,i,.035)}
+ warm(gx,1.6,gz,0x9fd6ff,1.8,3.5)}
+// Södermalm blocks
+[[-3.3,1.6,0xff6f9a],[-2.85,1.6,0xffd34d],[-2.4,1.6,0x4fc3ff],[-1.95,1.6,0xff9a3d],[-3.3,2.25,0x7fe0a0],[-2.4,2.3,0xc49bff],[-3.3,2.95,0xffb86b],[-2.85,3.0,0xff5f7a],[-.9,1.6,0x5b7bff],[-.45,1.6,0xffd34d],[0,1.6,0xff7f50],[.45,1.6,0x36d6b0],[-.45,2.95,0xff9ec2],[0.1,3.0,0x8f6bff],[.9,3.25,0xffa63d]]
+ .forEach(([x,z,c],i)=>gableHouse(x,z,.36,.4,.5+(i%3)*.12,c,0x34407a));
+// big Christmas tree on Mariatorget
+function tree(x,z,s=1,lights=false){const g=new THREE.Group();g.position.set(x,.13,z);g.scale.setScalar(s);scene.add(g);
+  mesh(CYL(.04,.05,.14,6),T(0x6b4226),0,.07,0,{parent:g,outline:false});
+  [[.24,.32,.2],[.19,.28,.38],[.13,.24,.54]].forEach(([r,h,y])=>{mesh(new THREE.ConeGeometry(r,h,32,3),T(0x2e9e64),0,y,0,{parent:g,ol:.01});mesh(new THREE.ConeGeometry(r*.62,h*.45,32),SNOW,0,y+h*.3,0,{parent:g,outline:false})});
+  if(lights){for(let i=0;i<14;i++){const t=i/14,a=t*Math.PI*5,r=.22*(1-t*.7);bulb(Math.cos(a)*r,.12+t*.55,Math.sin(a)*r,i,.022,g)}
+    mesh(new THREE.OctahedronGeometry(.05),BASIC(0xffe066),0,.72,0,{parent:g,outline:false})}
+  return g}
+tree(-1.55,2.6,2.4,true);
+
+// ---------- Djurgården: Vasa + Gröna Lund ----------
+// Vasa ship in the channel
+{const v=new THREE.Group();v.position.set(1.32,.06,.25);v.rotation.y=Math.PI/2;scene.add(v);
+ const s=new THREE.Shape();s.moveTo(-.55,.36);s.lineTo(-.48,.08);s.quadraticCurveTo(-.3,-.06,.2,-.04);s.quadraticCurveTo(.48,0,.62,.2);s.lineTo(.42,.2);s.lineTo(.3,.16);s.lineTo(-.3,.16);s.lineTo(-.4,.3);s.lineTo(-.55,.36);
+ const hull=new THREE.ExtrudeGeometry(s,{depth:.22,bevelEnabled:true,bevelSize:.02,bevelThickness:.03,bevelSegments:2});hull.translate(0,0,-.11);
+ mesh(hull,T(0x6b3a1f),0,0,0,{parent:v});
+ mesh(B(.06,.22,.26),T(0xffc94d,GLOW(0xffa000,.4)),-.55,.25,0,{parent:v,outline:false}); // gilded stern
+ mesh(B(.9,.015,.012),T(0xffc94d),-.02,.1,.135,{parent:v,outline:false});mesh(B(.9,.015,.012),T(0xffc94d),-.02,.1,-.135,{parent:v,outline:false});
+ [[-.25,.95],[.05,1.1],[.33,.85]].forEach(([x,h])=>{mesh(CYL(.014,.018,h,6),T(0x4a2a14),x,.16+h/2,0,{parent:v,outline:false});
+   [.35,.62,.85].forEach(k=>{if(k*h<h-.05)mesh(B(.012,.012,.36-k*.15),T(0x4a2a14),x,.16+k*h,0,{parent:v,outline:false})});
+   mesh(B(.06,.04,.004),T(0xff4747),x,.16+h+.02,0,{parent:v,outline:false})});
+ const rig=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-.55,.36,0),new THREE.Vector3(-.25,1.11,0),new THREE.Vector3(.05,1.26,0),new THREE.Vector3(.33,1.01,0),new THREE.Vector3(.62,.2,0)]);
+ v.add(new THREE.Line(rig,new THREE.LineBasicMaterial({color:0x2a1a0a})));
+ [-.5,.55].forEach(x=>bulb(x,.42,0,1,.03,v))}
+// Ferris wheel
+const wheel=new THREE.Group();wheel.position.set(3.25,1.0,.25);wheel.rotation.y=-.5;scene.add(wheel);
+{const rim=T(0xff6fae,GLOW(0xff3f8f,.5));mesh(new THREE.TorusGeometry(.55,.03,16,96),rim,0,0,0,{parent:wheel});
+ mesh(new THREE.TorusGeometry(.4,.015,6,32),rim,0,0,0,{parent:wheel,outline:false});
+ for(let i=0;i<10;i++){const a=i/10*Math.PI*2;const sp=mesh(B(.012,1.1,.012),T(0xffffff),0,0,0,{parent:wheel,outline:false});sp.rotation.z=a;
+   const cab=mesh(ellipsoid(.06,1,1.15,1),T(BULB_COLORS[i%4],GLOW(BULB_COLORS[i%4],.6)),Math.cos(a)*.55,Math.sin(a)*.55,0,{parent:wheel,ol:.01});cab.userData.cab=true;
+   bulb(Math.cos(a+.31)*.55,Math.sin(a+.31)*.55,.04,i,.025,wheel)}
+ const legM=T(0xe8ecf6);[-1,1].forEach(s=>{const l=mesh(B(.04,1.2,.04),legM,3.25+Math.cos(-.5)*0+s*.22*Math.cos(.5),.55,.25+s*.22*Math.sin(.5),{rz:s*.18,ry:-.5});})}
+// carousel
+const carousel=new THREE.Group();carousel.position.set(2.62,.13,-.32);scene.add(carousel);
+{mesh(CYL(.3,.32,.06,20),T(0xffd34d),0,.03,0,{parent:carousel});
+ const c=document.createElement('canvas');c.width=128;c.height=8;const x=c.getContext('2d');for(let i=0;i<16;i++){x.fillStyle=i%2?'#ff4f7a':'#ffffff';x.fillRect(i*8,0,8,8)}
+ const st=new THREE.CanvasTexture(c);st.encoding=THREE.sRGBEncoding;mesh(new THREE.ConeGeometry(.36,.26,16),T(0xffffff,{map:st}),0,.5,0,{parent:carousel});
+ mesh(CYL(.04,.04,.36,8),T(0xffd34d),0,.24,0,{parent:carousel,outline:false});
+ for(let i=0;i<6;i++){const a=i/6*Math.PI*2;mesh(CYL(.008,.008,.34,4),T(0xffd34d),Math.cos(a)*.22,.24,Math.sin(a)*.22,{parent:carousel,outline:false});
+   mesh(ellipsoid(.045,1.4,.8,.6),T(BULB_COLORS[i%4]),Math.cos(a)*.22,.18,Math.sin(a)*.22,{parent:carousel,ry:-a,ol:.008});bulb(Math.cos(a)*.34,.38,Math.sin(a)*.34,i,.025,carousel)}}
+// drop tower
+const dropRing=new THREE.Group();scene.add(dropRing);
+{const dx=2.15,dz=.45;mesh(CYL(.04,.05,1.9,8),T(0xe8ecf6),dx,1.08,dz);mesh(new THREE.ConeGeometry(.07,.15,8),T(0xff4747),dx,2.1,dz);
+ dropRing.position.set(dx,1,dz);mesh(CYL(.13,.13,.06,12),T(0x5b7bff,GLOW(0x5b7bff,.6)),0,0,0,{parent:dropRing});
+ for(let i=0;i<8;i++){const a=i/8*Math.PI*2;bulb(Math.cos(a)*.13,0,Math.sin(a)*.13,i,.02,dropRing)}}
+warm(2.8,1.2,.3,0xff6fae,1.6,3);
+tree(2.25,-.48,.9);tree(3.55,-.55,.8);tree(2.0,.0,.75);
+
+// trees on islands
+[[-3.4,-1.45],[-1.2,-1.4],[.15,-1.45],[2.5,-1.5],[3.4,-1.9],[2.3,-3.4],[-3.4,1.4],[-2.0,3.35],[1.4,1.5],[3.4,1.5],[-.95,-.55]].forEach(([x,z],i)=>tree(x,z,.65+(i%3)*.12,i%4===0));
+
+// ---------- ferries ----------
+function ferry(){const g=new THREE.Group();scene.add(g);
+  mesh(B(.42,.09,.15,.04),T(0xffffff),0,.06,0,{parent:g,ol:.01});mesh(B(.42,.025,.145),T(0x1f3f8f),0,.03,0,{parent:g,outline:false});
+  mesh(B(.26,.08,.11),facade(0xf3f3f8,.26,.08),-.02,.14,0,{parent:g,ol:.01});
+  mesh(CYL(.025,.025,.1,8),T(0x111111),.06,.23,0,{parent:g,outline:false});mesh(CYL(.026,.026,.025,8),T(0xffffff),.06,.26,0,{parent:g,outline:false});
+  bulb(.2,.12,0,1,.02,g);return g}
+const ferries=[{g:ferry(),z:-.95,a:.1,b:3.4,s:.25,t:.2},{g:ferry(),z:.95,a:-3.4,b:-.85,s:.22,t:.7}];
+
+// ---------- tokens on START ----------
+// Dala horse: carved silhouette with soft bevel, painted saddle and bridle
+{const d=new THREE.Group();d.position.set(4.68,-.04,3.98);d.rotation.y=.65;d.scale.setScalar(1.25);scene.add(d);
+ const sh=new THREE.Shape();sh.moveTo(-.2,0);sh.lineTo(-.06,0);sh.quadraticCurveTo(0,.1,.06,0);sh.lineTo(.2,0);sh.lineTo(.17,.2);
+ sh.quadraticCurveTo(.25,.28,.21,.36);sh.lineTo(.27,.45);sh.quadraticCurveTo(.34,.44,.35,.49);sh.quadraticCurveTo(.36,.56,.29,.57);
+ sh.lineTo(.23,.62);sh.lineTo(.21,.67);sh.lineTo(.17,.6);sh.quadraticCurveTo(.1,.56,.07,.42);sh.quadraticCurveTo(0,.37,-.14,.38);
+ sh.quadraticCurveTo(-.25,.4,-.27,.33);sh.lineTo(-.31,.27);sh.quadraticCurveTo(-.26,.22,-.21,.24);sh.lineTo(-.2,0);
+ const body=new THREE.ExtrudeGeometry(sh,{depth:.07,bevelEnabled:true,bevelSize:.028,bevelThickness:.035,bevelSegments:5,curveSegments:16});body.translate(0,0,-.035);
+ mesh(body,T(0xb80f18,{roughness:.45}),0,0,0,{parent:d,ol:.012});
+ const flat=(r,sx,sy,col,x,y,z)=>{const g=new THREE.CylinderGeometry(r,r,.006,24);g.rotateX(Math.PI/2);g.scale(sx,sy,1);mesh(g,T(col),x,y,z,{parent:d,outline:false})};
+ [1,-1].forEach(s=>{const z=s*.072;
+   flat(.085,1.25,1,0xffffff,-.04,.29,z);flat(.07,1.25,1,0x1f6fd1,-.04,.29,z+s*.002);flat(.035,1.6,.6,0xffd02e,-.04,.29,z+s*.004);
+   [[-.16,.3,0x2e9e64],[.07,.33,0x2e9e64],[-.04,.2,0xffd02e],[-.12,.2,0xffffff],[.04,.2,0xffffff]].forEach(([x,y,c])=>flat(.016,1,1,c,x,y,z));
+   flat(.018,1,1,0xffffff,.26,.53,z*.92);flat(.009,1,1,0x111111,.262,.532,z*.92+s*.002);
+   const br=new THREE.TorusGeometry(.055,.008,6,18,Math.PI);mesh(br,T(0xffffff),.29,.5,z*.9,{parent:d,outline:false,rz:-.9})});}
+// kanelbulle
+{const k=new THREE.Group();k.position.set(4.62,0,4.62);scene.add(k);
+ mesh(new THREE.TorusGeometry(.14,.075,16,40),T(0xc8853f),0,.09,0,{parent:k,rx:Math.PI/2});
+ mesh(new THREE.TorusGeometry(.07,.05,8,18),T(0xb06a2c),0,.15,0,{parent:k,rx:Math.PI/2});
+ mesh(new THREE.SphereGeometry(.05,10,8),T(0xd8964f),0,.17,0,{parent:k});
+ for(let i=0;i<14;i++){const a=rnd(0,Math.PI*2),r=rnd(.04,.2);mesh(B(.02,.02,.02),T(0xffffff),Math.cos(a)*r,.17+rnd(0,.02),Math.sin(a)*r,{parent:k,outline:false,ry:a})}}
+// moose: ellipsoids, capsules and bevelled palm antlers
+{const m=new THREE.Group();m.position.set(3.98,-.04,4.62);m.rotation.y=-2.3;m.scale.setScalar(1.15);scene.add(m);
+ const fur=T(0x7a4a2a),dark=T(0x4a2c18),ant=T(0xf0d29a);
+ mesh(ellipsoid(.13,1.35,.85,.8),fur,0,.33,0,{parent:m,ol:.012});
+ mesh(ellipsoid(.08,1.2,1,.9),fur,.08,.42,0,{parent:m,outline:false});
+ [[-.1,.05],[.1,.05],[-.1,-.05],[.1,-.05]].forEach(([x,z])=>mesh(capsule(.025,.17),dark,x,.13,z,{parent:m,ol:.008}));
+ const neck=mesh(capsule(.045,.09),fur,.15,.45,0,{parent:m,rz:-.8,outline:false});
+ mesh(ellipsoid(.07,1.45,.85,.85),fur,.24,.5,0,{parent:m,rz:-.35,ol:.01});
+ mesh(new THREE.SphereGeometry(.045,14,10),dark,.32,.46,0,{parent:m,outline:false});
+ mesh(new THREE.SphereGeometry(.028,12,8),fur,.2,.4,0,{parent:m,outline:false});
+ [1,-1].forEach(s=>{mesh(ellipsoid(.025,.6,1.4,.6),fur,.19,.57,s*.045,{parent:m,outline:false,rx:s*.4});
+   mesh(new THREE.SphereGeometry(.013,10,8),T(0x111111),.27,.53,s*.05,{parent:m,outline:false});
+   mesh(new THREE.SphereGeometry(.005,6,4),BASIC(0xffffff),.275,.537,s*.06,{parent:m,outline:false});
+   const a=new THREE.Shape();a.moveTo(0,0);a.quadraticCurveTo(.03,.05,.02,.1);a.quadraticCurveTo(.04,.13,.05,.1);a.quadraticCurveTo(.07,.14,.08,.1);a.quadraticCurveTo(.11,.13,.11,.08);a.quadraticCurveTo(.1,.02,.03,-.01);a.lineTo(0,0);
+   const ag=new THREE.ExtrudeGeometry(a,{depth:.008,bevelEnabled:true,bevelSize:.008,bevelThickness:.008,bevelSegments:3,curveSegments:10});
+   const am=mesh(ag,ant,.2,.57,s*.04,{parent:m,outline:false});am.rotation.set(s*-1.1,s>0?0:Math.PI,.15)});}
+
+// dice beside the board
+function dieTex(n){const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,128,128);x.fillStyle='#e8344e';
+  const P={1:[[64,64]],2:[[34,34],[94,94]],3:[[34,34],[64,64],[94,94]],4:[[34,34],[94,34],[34,94],[94,94]],5:[[34,34],[94,34],[64,64],[34,94],[94,94]],6:[[34,30],[94,30],[34,64],[94,64],[34,98],[94,98]]}[n];
+  P.forEach(([a,b])=>{x.beginPath();x.arc(a,b,12,0,7);x.fill()});const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;return T(0xffffff,{map:t})}
+const dieMats=[1,6,2,5,3,4].map(dieTex);
+mesh(B(.55,.55,.55),dieMats,6.3,-.22,2.4,{ry:.5,ol:.025});mesh(B(.55,.55,.55),dieMats,6.9,-.22,3.3,{ry:-.3,rx:Math.PI/2,ol:.025});
+
+// houses and a hotel on the Aspudden row (side 0, tiles 5/7/8)
+{const w=(10-2.6)/9;const tileX=i=>5-1.3-(i+.5)*w;
+ [[5,0x36d68b],[5,0x36d68b],[7,0x36d68b],[8,0xff4747]].forEach(([i,c],k)=>{const off=(k===1?.18:k===0?-.18:0);
+   const onBoard=-.035; // board surface height, so pieces sit on the tiles
+   if(c===0xff4747){gableHouse(tileX(i),3.86,.34,.18,.18,c,0x7a1a1a,{chimney:false,y:onBoard})}else gableHouse(tileX(i)+off,3.86,.16,.16,.12,c,0x1f6f45,{chimney:false,y:onBoard})})}
+
+// ---------- surroundings ----------
+// red cottages (stugor) with white trim
+[[-7,-4,.6],[-7.5,2,1.2],[7.4,-3.5,-.4],[-3,-7.4,.2],[2.8,7.6,2.8],[-5,7,2.2],[6.6,-6.4,-.8]].forEach(([x,z,r])=>{
+  const g=gableHouse(x,z,.8,.6,.45,0xb3261e,0x2a2f45,{ry:r});g.position.y=-.5;
+  mesh(B(.82,.04,.62),T(0xffffff),0,.45,0,{parent:g,outline:false})});
+for(let i=0;i<60;i++){const a=rnd(0,Math.PI*2),r=rnd(7,20);const t=tree(Math.cos(a)*r,Math.sin(a)*r,rnd(1.3,2.4),i%9===0);t.position.y=-.5}
+// snowmen
+[[-6.3,4.8],[6.2,5.6]].forEach(([x,z])=>{const g=new THREE.Group();g.position.set(x,-.5,z);scene.add(g);
+  mesh(new THREE.SphereGeometry(.3,40,28),SNOW,0,.28,0,{parent:g});mesh(new THREE.SphereGeometry(.21,40,28),SNOW,0,.7,0,{parent:g});mesh(new THREE.SphereGeometry(.15,40,28),SNOW,0,1.0,0,{parent:g});
+  mesh(new THREE.ConeGeometry(.04,.2,8),T(0xff8a2a),0,1.0,.2,{parent:g,rx:Math.PI/2,outline:false});mesh(CYL(.12,.12,.16,12),T(0x2a2f45),0,1.2,0,{parent:g});mesh(CYL(.18,.18,.02,12),T(0x2a2f45),0,1.12,0,{parent:g,outline:false});
+  mesh(new THREE.TorusGeometry(.17,.04,6,16),T(0xff4747),0,.85,0,{parent:g,rx:Math.PI/2,outline:false})});
+
+// stars
+{const g=new THREE.BufferGeometry(),p=[];for(let i=0;i<700;i++){const a=rnd(0,Math.PI*2),e=rnd(.12,1.4),r=90;p.push(Math.cos(a)*Math.cos(e)*r,Math.sin(e)*r,Math.sin(a)*Math.cos(e)*r)}
+ g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0xffffff,size:.35,fog:false})))}
+// northern lights band
+let aurora;{const c=document.createElement('canvas');c.width=512;c.height=128;const x=c.getContext('2d');
+ for(let i=0;i<512;i+=2){const h=60+40*Math.sin(i/37)+20*Math.sin(i/11);const g=x.createLinearGradient(0,128,0,128-h);g.addColorStop(0,'rgba(80,255,170,0)');g.addColorStop(.25,'rgba(80,255,170,.55)');g.addColorStop(.7,'rgba(140,110,255,.35)');g.addColorStop(1,'rgba(255,90,200,0)');x.fillStyle=g;x.fillRect(i,128-h,2,h)}
+ const t=new THREE.CanvasTexture(c);t.wrapS=THREE.RepeatWrapping;t.repeat.set(3,1);
+ aurora=new THREE.Mesh(new THREE.CylinderGeometry(60,60,22,64,1,true),new THREE.MeshBasicMaterial({map:t,transparent:true,side:THREE.BackSide,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));aurora.position.y=18;scene.add(aurora)}
+// snowfall
+const FLAKES=1400;let snow;{const c=document.createElement('canvas');c.width=c.height=32;const x=c.getContext('2d');const g=x.createRadialGradient(16,16,0,16,16,16);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,32,32);
+ const geo=new THREE.BufferGeometry(),p=new Float32Array(FLAKES*3);for(let i=0;i<FLAKES;i++){p[i*3]=rnd(-11,11);p[i*3+1]=rnd(-.5,10);p[i*3+2]=rnd(-11,11)}
+ geo.setAttribute('position',new THREE.BufferAttribute(p,3));snow=new THREE.Points(geo,new THREE.PointsMaterial({size:.09,map:new THREE.CanvasTexture(c),transparent:true,depthWrite:false}));scene.add(snow)}
+
+// ---------- camera controls ----------
+let yaw=.1,elev=.74,dist=14.8,idle=0;const ptrs=new Map();let pinch0=0;
+const clampD=d=>Math.min(22,Math.max(2.2,d));
+const target=new THREE.Vector3(0,1,0),goal=target.clone();let goalDist=null,goalYaw=null;
+canvas.addEventListener('pointerdown',e=>{goalDist=goalYaw=null;ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});canvas.setPointerCapture(e.pointerId);idle=0;
+  if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch0=Math.hypot(a.x-b.x,a.y-b.y)}});
+canvas.addEventListener('pointermove',e=>{const p=ptrs.get(e.pointerId);if(!p)return;idle=0;
+  if(ptrs.size===1){yaw-=(e.clientX-p.x)*.006;elev=Math.min(1.35,Math.max(.25,elev+(e.clientY-p.y)*.004))}
+  p.x=e.clientX;p.y=e.clientY;
+  if(ptrs.size===2){const [a,b]=[...ptrs.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);if(pinch0){dist=clampD(dist*pinch0/d)}pinch0=d}});
+const up=e=>{ptrs.delete(e.pointerId);pinch0=0};canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
+canvas.addEventListener('wheel',e=>{e.preventDefault();goalDist=null;dist=clampD(dist*(1+Math.sign(e.deltaY)*.08));idle=0},{passive:false});
+document.getElementById('vTok').onclick=()=>{goal.set(4.35,.35,4.35);goalDist=3;goalYaw=.75;elev=.5;idle=-6};
+document.getElementById('vCity').onclick=()=>{goal.set(0,1,0);goalDist=14.8;goalYaw=.1;elev=.74;idle=0};
+document.getElementById('zin').onclick=()=>{goalDist=null;dist=clampD(dist*.85);idle=0};document.getElementById('zout').onclick=()=>{goalDist=null;dist=clampD(dist/.85);idle=0};
+function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);cam.aspect=w/h;cam.fov=w<h?55:40;cam.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();
+
+// ---------- animation ----------
+let last=performance.now(),time=0;
+function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;time+=dt;idle+=dt;
+  if(!reduce){
+    if(idle>3){goalYaw=null;yaw+=dt*.07}
+    wheel.rotation.z+=dt*.35;wheel.children.forEach(c=>{if(c.userData.cab)c.rotation.z=-wheel.rotation.z});
+    carousel.rotation.y+=dt*1.1;
+    const ph=(time*.35)%1;dropRing.position.y=ph<.7?.35+ph/.7*1.55:1.9-((ph-.7)/.3)**2*1.55;
+    bulbMats.forEach((m,i)=>{const k=.55+.45*Math.sin(time*4+i*1.57);m.color.setHex(BULB_COLORS[i]).multiplyScalar(k);haloMats[i].opacity=k});
+    kakLight.visible=Math.sin(time*3)>0;
+    ferries.forEach(f=>{f.t+=dt*f.s/(f.b-f.a)*2;const u=f.t%2,k=u<1?u:2-u,e=k*k*(3-2*k);f.g.position.set(f.a+(f.b-f.a)*e,.02,f.z);f.g.rotation.y=u<1?0:Math.PI});
+    aurora.material.map.offset.x+=dt*.006;aurora.rotation.y+=dt*.01;
+    const p=snow.geometry.attributes.position.array;for(let i=0;i<FLAKES;i++){p[i*3+1]-=dt*(.35+(i%7)*.05);p[i*3]+=Math.sin(time+i)*dt*.08;if(p[i*3+1]<-.5)p[i*3+1]=10}snow.geometry.attributes.position.needsUpdate=true;
+  } else {ferries.forEach(f=>f.g.position.set((f.a+f.b)/2,.02,f.z))}
+  const ease=Math.min(1,dt*4);target.lerp(goal,ease);if(goalDist!==null)dist+=(goalDist-dist)*ease;if(goalYaw!==null)yaw+=(goalYaw-yaw)*ease;
+  cam.position.set(target.x+Math.sin(yaw)*Math.cos(elev)*dist,target.y+Math.sin(elev)*dist,target.z+Math.cos(yaw)*Math.cos(elev)*dist);cam.lookAt(target);
+  renderer.render(scene,cam);requestAnimationFrame(frame)}
+requestAnimationFrame(frame);
+})();
+</script>
