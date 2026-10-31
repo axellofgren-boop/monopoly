@@ -7,6 +7,7 @@ import type { GameView } from './game.js';
 import { playPlogbilen } from './minigame.js';
 import { Connection, saveSession } from './net.js';
 import { BoardScene } from './scene/index.js';
+import type { RollAnimation } from './scene/index.js';
 import { TOKEN_INFO } from './theme.js';
 import './style.css';
 
@@ -24,6 +25,8 @@ interface Model {
   lobby: LobbyPlayer[];
   game: GameView | null;
   playingMinigame: boolean;
+  /** A dice throw to animate on the next render. */
+  roll: RollAnimation | null;
 }
 
 const model: Model = {
@@ -34,6 +37,7 @@ const model: Model = {
   lobby: [],
   game: null,
   playingMinigame: false,
+  roll: null,
 };
 
 const conn = new Connection(onMessage, (connected) => {
@@ -70,9 +74,16 @@ function onMessage(msg: ServerMessage): void {
       view.clockOffset = msg.serverNow - Date.now();
       appendLog(view, msg.events);
       model.game = view;
+      const rolled = msg.events.find((e) => e.type === 'rolled');
+      if (msg.diceThrow && rolled?.type === 'rolled') {
+        model.roll = { diceThrow: msg.diceThrow, dice: rolled.dice };
+      }
       maybeStartMinigame();
       break;
     }
+    case 'cameras':
+      board3d?.setPoses(msg.poses);
+      return; // nothing in the UI changes
     case 'error':
       model.error = msg.message;
       if (/rejoin|ended/.test(msg.message)) saveSession(null);
@@ -207,19 +218,37 @@ if (board3d) {
     view.selected = view.selected === index ? null : index;
     render();
   };
+  board3d.onThrow = (diceThrow) =>
+    conn.send({ type: 'intent', intent: { type: 'ROLL' }, diceThrow });
+  board3d.onCamera = (pose) => {
+    if (model.game) conn.send({ type: 'camera', pose });
+  };
+  const fps = h('div', { class: 'fps', title: 'Frames per second' });
+  document.body.append(fps);
+  board3d.onStats = ({ fps: n, pixelRatio, drawCalls }) => {
+    fps.textContent = `${n} FPS`;
+    fps.title = `Frames per second · render scale ${pixelRatio}x · ${drawCalls} draw calls`;
+    fps.classList.toggle('slow', n < 30);
+  };
 }
 
 const camera = board3d
   ? {
       view: (kind: 'board' | 'me') => board3d.view(kind),
       zoom: (factor: number) => board3d.zoom(factor),
+      flying: () => board3d.cameraMode === 'fly',
+      toggleFly: () => {
+        board3d.setCameraMode(board3d.cameraMode === 'fly' ? 'orbit' : 'fly');
+        render();
+      },
     }
   : undefined;
 
 function render(): void {
   const view = model.game;
   if (board3d) {
-    board3d.update(view?.state ?? null, view?.me ?? null);
+    board3d.update(view?.state ?? null, view?.me ?? null, model.roll ?? undefined);
+    model.roll = null;
     board3d.select(view?.selected ?? null);
     board3d.setAutoRotate(!view);
   }

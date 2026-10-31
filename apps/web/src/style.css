@@ -156,6 +156,9 @@ body:not(.flat) .lobby {
 .hud-views .btn {
   background: #0f1838d9;
 }
+.hud-views .btn.primary {
+  background: var(--gold);
+}
 .btn.icon {
   width: 38px;
   padding: 7px 0;
@@ -181,6 +184,44 @@ body:not(.flat) .lobby {
     left: 16px;
     right: 16px;
     justify-content: center;
+  }
+}
+
+.fps {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #0f1838cc;
+  color: #7dff9a;
+  font: 600 12px/1.6 var(--body);
+  font-variant-numeric: tabular-nums;
+  pointer-events: auto;
+}
+.fps.slow {
+  color: var(--gold);
+}
+body.flat .fps {
+  display: none;
+}
+.fly-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #0f1838d9;
+  font-size: 13px;
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  .fly-hint {
+    display: none;
   }
 }
 

@@ -13,8 +13,21 @@ import {
   publicView,
 } from '@hometown/engine';
 import type { Action, GameEvent, GameState, PlayerId } from '@hometown/engine';
-import { NAME_MAX_LENGTH, TOKENS } from '@hometown/protocol';
-import type { Intent, LobbyPlayer, ServerMessage, Token } from '@hometown/protocol';
+import {
+  NAME_MAX_LENGTH,
+  TOKENS,
+  randomThrow,
+  sanitizePose,
+  sanitizeThrow,
+} from '@hometown/protocol';
+import type {
+  CameraPose,
+  DiceThrow,
+  Intent,
+  LobbyPlayer,
+  ServerMessage,
+  Token,
+} from '@hometown/protocol';
 
 /** A disconnected player is handed to the autopilot after this long. */
 export const AWAY_AFTER_MS = 2 * 60_000;
@@ -52,6 +65,10 @@ export class Room {
   private game: GameState | null = null;
   private scores = new Map<PlayerId, number>();
   private minigameStartedAt: number | null = null;
+  private poses = new Map<PlayerId, CameraPose>();
+  private posesDirty = false;
+  /** Throw supplied with the action being applied, if any. */
+  private pendingThrow: unknown = null;
   lastActivity: number;
 
   constructor(
@@ -109,6 +126,7 @@ export class Room {
     if (!seat) return;
     seat.send = null;
     seat.disconnectedAt = now;
+    if (this.poses.delete(playerId)) this.posesDirty = true;
     this.broadcast();
   }
 
@@ -127,12 +145,26 @@ export class Room {
     this.broadcast([]);
   }
 
-  intent(playerId: PlayerId, intent: Intent, now: number): void {
+  intent(playerId: PlayerId, intent: Intent, now: number, diceThrow?: unknown): void {
     if (!this.game) throw new RoomError('The game has not started');
     // Rebuild the action so a client can never set the player, the time or forced dice.
     const { dice: _dice, ...clean } = intent as Intent & { dice?: unknown };
-    this.apply({ ...clean, player: playerId, now } as Action);
+    this.pendingThrow = diceThrow ?? null;
+    try {
+      this.apply({ ...clean, player: playerId, now } as Action);
+    } finally {
+      this.pendingThrow = null;
+    }
     this.lastActivity = now;
+  }
+
+  /** Stores where a player is looking; sent to everyone on the next tick. */
+  camera(playerId: PlayerId, raw: unknown): void {
+    if (!this.game) return;
+    const pose = sanitizePose(raw);
+    if (!pose || !this.seats.some((s) => s.id === playerId)) return;
+    this.poses.set(playerId, pose);
+    this.posesDirty = true;
   }
 
   minigameScore(playerId: PlayerId, score: number): void {
@@ -144,6 +176,11 @@ export class Room {
 
   /** Called on a timer by the server. */
   tick(now: number): void {
+    if (this.posesDirty) {
+      this.posesDirty = false;
+      const msg: ServerMessage = { type: 'cameras', poses: Object.fromEntries(this.poses) };
+      for (const seat of this.seats) seat.send?.(msg);
+    }
     const game = this.game;
     if (!game || game.phase.kind === 'gameOver') return;
 
@@ -187,8 +224,15 @@ export class Room {
       this.minigameStartedAt = action.now;
     }
     if (result.events.length || before !== this.game.phase.kind || action.type !== 'TICK') {
-      this.broadcast(result.events);
+      this.broadcast(result.events, this.throwFor(result.events));
     }
+  }
+
+  /** The throw to animate if these events include a roll: the player's own, or a random one. */
+  private throwFor(events: GameEvent[]): DiceThrow | undefined {
+    const roll = events.find((e) => e.type === 'rolled');
+    if (!roll || roll.type !== 'rolled') return undefined;
+    return sanitizeThrow(this.pendingThrow, roll.dice.length) ?? randomThrow(roll.dice.length);
   }
 
   lobbyPlayers(): LobbyPlayer[] {
@@ -205,10 +249,17 @@ export class Room {
     this.seats.find((s) => s.id === id)?.send?.(msg);
   }
 
-  private broadcast(events: GameEvent[] = []): void {
+  private broadcast(events: GameEvent[] = [], diceThrow?: DiceThrow): void {
     const players = this.lobbyPlayers();
     const msg: ServerMessage = this.game
-      ? { type: 'state', state: publicView(this.game), events, players, serverNow: Date.now() }
+      ? {
+          type: 'state',
+          state: publicView(this.game),
+          events,
+          players,
+          serverNow: Date.now(),
+          ...(diceThrow ? { diceThrow } : {}),
+        }
       : { type: 'lobby', code: this.code, players };
     for (const seat of this.seats) seat.send?.(msg);
   }

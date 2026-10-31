@@ -20,7 +20,13 @@ import type { Builder } from './builder.js';
 
 export type Animate = (dt: number, time: number) => void;
 
-export function buildCity(b: Builder): Animate {
+export interface City {
+  animate: Animate;
+  /** Objects that move, so they must not be baked into static geometry. */
+  moving: THREE.Object3D[];
+}
+
+export function buildCity(b: Builder): City {
   const rnd = b.rnd;
   const root = b.root;
 
@@ -641,7 +647,8 @@ export function buildCity(b: Builder): Animate {
     );
   }
 
-  return (dt, time) => {
+  const moving = [wheel, carousel, dropRing, kakLight, aurora, ...ferries.map((f) => f.g)];
+  const animate: Animate = (dt, time) => {
     wheel.rotation.z += dt * 0.35;
     for (const cab of cabins) cab.rotation.z = -wheel.rotation.z;
     carousel.rotation.y += dt * 1.1;
@@ -667,6 +674,7 @@ export function buildCity(b: Builder): Animate {
     }
     snowGeo.attributes.position!.needsUpdate = true;
   };
+  return { animate, moving };
 }
 
 /** The Vasa ship, used in the city channel and (scaled down) as a player token. */

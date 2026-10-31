@@ -113,4 +113,36 @@ describe('Room', () => {
     room.tick(T0 + MINIGAME_PLAY_MS + MINIGAME_GRACE_MS);
     expect(inner.game.phase.kind).toBe('turnEnd');
   });
+
+  it('attaches a clamped dice throw to the roll, or makes one up', () => {
+    const { room, a, inbox, state } = setup();
+    room.start(a.id, T0);
+    const current = state().turn.current;
+    const thrown = { origin: [0, 99, 0], velocity: [500, 0, 0], spin: [[1, 2, 3]] };
+    room.intent(current, { type: 'ROLL' }, T0, thrown);
+    const msg = inbox.a!.filter((m) => m.type === 'state').at(-1);
+    expect(msg?.type === 'state' && msg.diceThrow).toBeTruthy();
+    if (msg?.type !== 'state' || !msg.diceThrow) return;
+    expect(msg.diceThrow.origin[1]).toBe(4);
+    expect(msg.diceThrow.velocity[0]).toBe(14);
+    expect(msg.diceThrow.spin).toHaveLength(2);
+    expect(msg.diceThrow.spin[1]).toEqual([0, 0, 0]);
+  });
+
+  it('shares camera poses on the next tick and drops them on disconnect', () => {
+    const { room, a, inbox } = setup();
+    room.start(a.id, T0);
+    room.camera(a.id, { p: [1, 2, 3], yaw: 0.5, pitch: 9 });
+    room.tick(T0);
+    const msg = inbox.b!.find((m) => m.type === 'cameras');
+    expect(msg?.type === 'cameras' && msg.poses[a.id]).toEqual({
+      p: [1, 2, 3],
+      yaw: 0.5,
+      pitch: 1.6,
+    });
+    room.disconnect(a.id, T0);
+    room.tick(T0 + 1);
+    const lastCams = inbox.b!.filter((m) => m.type === 'cameras').at(-1);
+    expect(lastCams?.type === 'cameras' && lastCams.poses[a.id]).toBeUndefined();
+  });
 });

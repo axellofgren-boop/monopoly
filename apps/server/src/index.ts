@@ -91,9 +91,11 @@ wss.on('connection', (socket: WebSocket) => {
         case 'start':
           return room.start(playerId, now);
         case 'intent':
-          return room.intent(playerId, msg.intent, now);
+          return room.intent(playerId, msg.intent, now, msg.diceThrow);
         case 'minigameScore':
           return room.minigameScore(playerId, Number(msg.score));
+        case 'camera':
+          return room.camera(playerId, msg.pose);
       }
     } catch (err) {
       send({ type: 'error', message: err instanceof RoomError ? err.message : 'Bad message' });

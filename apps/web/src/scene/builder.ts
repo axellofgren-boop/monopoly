@@ -29,12 +29,35 @@ export function srgbTexture(c: HTMLCanvasElement): THREE.CanvasTexture {
   return t;
 }
 
-/** Standard PBR material with the look's default roughness. */
+const materialCache = new Map<string, THREE.MeshStandardMaterial>();
+
+/** Cache key for material options made only of plain values and colours; null otherwise. */
+function materialKey(color: THREE.ColorRepresentation, o: object): string | null {
+  const parts: string[] = [new THREE.Color(color).getHexString()];
+  for (const [k, v] of Object.entries(o)) {
+    if (v instanceof THREE.Color) parts.push(`${k}=${v.getHexString()}`);
+    else if (typeof v === 'object' && v !== null) return null;
+    else parts.push(`${k}=${String(v)}`);
+  }
+  return parts.join('|');
+}
+
+/**
+ * Standard PBR material with the look's default roughness. Materials without textures are
+ * shared, so identical colours cost one material and can be merged into one draw call.
+ * Treat the result as read-only; create a material directly if it needs to change.
+ */
 export const T = (
   color: THREE.ColorRepresentation,
   o: THREE.MeshStandardMaterialParameters = {},
-): THREE.MeshStandardMaterial =>
-  new THREE.MeshStandardMaterial({ color, roughness: 0.72, metalness: 0, ...o });
+): THREE.MeshStandardMaterial => {
+  const key = materialKey(color, o);
+  const hit = key ? materialCache.get(key) : undefined;
+  if (hit) return hit;
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.72, metalness: 0, ...o });
+  if (key) materialCache.set(key, m);
+  return m;
+};
 
 export const GLOW = (color: THREE.ColorRepresentation, i = 1) => ({
   emissive: new THREE.Color(color),
@@ -135,6 +158,9 @@ export class Builder {
   private readonly bulbGeo = new THREE.SphereGeometry(1, 14, 10);
   private readonly layouts: (string | null)[][];
   private readonly facadeCache = new Map<string, { map: THREE.Texture; em: THREE.Texture }>();
+  private readonly facadeMaterials = new Map<string, THREE.MeshStandardMaterial>();
+  /** Halo point clouds that follow the bulb blinking (set after baking). */
+  linkedHalos = new Map<THREE.SpriteMaterial, THREE.PointsMaterial[]>();
 
   constructor(
     readonly root: THREE.Object3D,
@@ -252,21 +278,27 @@ export class Builder {
   }
 
   facade(color: THREE.ColorRepresentation, w: number, h: number): THREE.MeshStandardMaterial {
-    const { map, em } = this.facadeTextures(color, Math.floor(this.rnd(0, 3)));
+    const layout = Math.floor(this.rnd(0, 3));
+    const rx = Math.max(0.5, Math.round(w * 2.4) / 4);
+    const ry = Math.max(0.5, Math.round(h * 2.4) / 4);
+    const key = `${String(color)}/${layout}/${rx}/${ry}`;
+    const hit = this.facadeMaterials.get(key);
+    if (hit) return hit;
+    const { map, em } = this.facadeTextures(color, layout);
     const m = map.clone();
     const e = em.clone();
     m.needsUpdate = e.needsUpdate = true;
-    const rx = Math.max(0.5, Math.round(w * 2.4) / 4);
-    const ry = Math.max(0.5, Math.round(h * 2.4) / 4);
     m.repeat.set(rx, ry);
     e.repeat.set(rx, ry);
-    return T(0xffffff, {
+    const mat = T(0xffffff, {
       map: m,
       emissive: new THREE.Color(0xffffff),
       emissiveMap: e,
       emissiveIntensity: 1.3,
       roughness: 0.85,
     });
+    this.facadeMaterials.set(key, mat);
+    return mat;
   }
 
   /** A building block with facade sides, a snowy roof, cornice and plinth. */
@@ -385,7 +417,10 @@ export class Builder {
       const k = 0.55 + 0.45 * Math.sin(time * 4 + i * 1.57);
       m.color.setHex(BULB_COLORS[i] ?? 0xffffff).multiplyScalar(k);
       const halo = this.haloMats[i];
-      if (halo) halo.opacity = k;
+      if (halo) {
+        halo.opacity = k;
+        for (const p of this.linkedHalos.get(halo) ?? []) p.opacity = k;
+      }
     });
   }
 }
