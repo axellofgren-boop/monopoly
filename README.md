@@ -21,21 +21,23 @@ never leave the server.
 
 ## Getting started
 
-Requires Node 20 or newer.
+Requires [Node.js](https://nodejs.org) 20 or newer and [Git](https://git-scm.com). Works on
+Windows, macOS and Linux.
 
 ```sh
+git clone https://github.com/axellofgren-boop/monopoly.git
+cd monopoly
 npm install
-npm run dev        # server on :8787 and client on http://localhost:5173
+npm run play       # builds the game and serves it on http://localhost:8787
 ```
 
-Open the client, create a game and send the link to a friend (or open it in a second browser
-window to play both sides).
+Open http://localhost:8787, create a game and open the invite link in a second browser window
+to play both sides. Press Ctrl+C to stop.
 
-To run the production build locally:
+For development with hot reload:
 
 ```sh
-npm run build
-npm start --workspace @hometown/server   # http://localhost:8787
+npm run dev        # server on :8787 and client on http://localhost:5173
 ```
 
 ## Checks
