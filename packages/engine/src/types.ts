@@ -63,13 +63,6 @@ export type Phase =
   | { kind: 'adjustMove'; dice: [number, number] }
   | { kind: 'awaitingBuyDecision'; space: number }
   | { kind: 'rentChoice'; space: number; amount: number; owner: PlayerId }
-  | {
-      kind: 'auction';
-      space: number;
-      highBid: number;
-      highBidder: PlayerId | null;
-      endsAt: number;
-    }
   | { kind: 'ohopp' }
   | {
       kind: 'minigame';
@@ -105,8 +98,6 @@ export interface GameConfig {
   jailFine: number;
   ohoppFee: number;
   turnSeconds: number;
-  auctionOpenSeconds: number;
-  auctionBidSeconds: number;
   crisisSeconds: number;
   tradeSeconds: number;
   minigameSeconds: number;
@@ -134,7 +125,7 @@ export interface GameState {
   nextTradeId: number;
   turn: TurnState;
   phase: Phase;
-  /** What happens once an interrupting phase (auction, crisis, minigame) is resolved. */
+  /** What happens once an interrupting phase (crisis, minigame) is resolved. */
   resume: Continuation | null;
   rushHourAnnounced: boolean;
 }
@@ -150,7 +141,6 @@ export type Action =
   | { type: 'ADJUST_MOVE'; player: PlayerId; now: number; reduceBy: number }
   | { type: 'BUY'; player: PlayerId; now: number }
   | { type: 'DECLINE_BUY'; player: PlayerId; now: number }
-  | { type: 'BID'; player: PlayerId; now: number; amount: number }
   | { type: 'PAY_RENT'; player: PlayerId; now: number }
   | { type: 'PAY_JAIL_FINE'; player: PlayerId; now: number }
   | { type: 'USE_ITEM'; player: PlayerId; now: number; item: 'slkort' | 'advokat' | 'hyresfrihet' }
@@ -190,8 +180,7 @@ export type GameEvent =
   | { type: 'moved'; player: PlayerId; from: number; to: number; passedStart: boolean }
   | { type: 'paid'; from: Creditor; to: Creditor; amount: number; reason: string }
   | { type: 'bought'; player: PlayerId; space: number; price: number }
-  | { type: 'auctionStarted'; space: number }
-  | { type: 'auctionWon'; player: PlayerId | null; space: number; price: number }
+  | { type: 'declinedBuy'; player: PlayerId; space: number }
   | { type: 'card'; player: PlayerId; card: string }
   | { type: 'item'; player: PlayerId; item: ItemKind; gained: boolean }
   | { type: 'jailed'; player: PlayerId }

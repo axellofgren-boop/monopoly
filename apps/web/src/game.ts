@@ -89,36 +89,6 @@ function controls(view: GameView, on: GameHandlers): HTMLElement {
       parts.push(h('h2', {}, `${ph.winners.map((id) => nameOf(state, id)).join(' & ')} won!`));
       if (ph.reason === 'backstop') parts.push(h('p', {}, 'Time ran out; the richest player won.'));
       break;
-    case 'auction': {
-      const next = Math.max(10, ph.highBid + 10);
-      parts.push(
-        h('h3', {}, `Auction: ${spaceAt(ph.space).name}`),
-        h(
-          'p',
-          {},
-          ph.highBidder
-            ? `High bid ${kr(ph.highBid)} by ${nameOf(state, ph.highBidder)}`
-            : 'No bids yet',
-          ' · ',
-          countdown(view, ph.endsAt),
-          ' s',
-        ),
-      );
-      if (meP && !meP.bankrupt) {
-        parts.push(
-          h(
-            'div',
-            { class: 'row' },
-            [next, next + 40, next + 90].map((amount) =>
-              amount <= meP.cash
-                ? btn(`Bid ${kr(amount)}`, () => send({ type: 'BID', amount }))
-                : null,
-            ),
-          ),
-        );
-      }
-      break;
-    }
     case 'minigame':
       parts.push(h('h3', {}, 'Minigame in progress…'));
       break;
@@ -215,7 +185,7 @@ function controls(view: GameView, on: GameHandlers): HTMLElement {
             meP.cash >= price
               ? btn(`Buy for ${kr(price)}`, () => send({ type: 'BUY' }), 'primary')
               : null,
-            btn('Auction it', () => send({ type: 'DECLINE_BUY' })),
+            btn("Don't buy", () => send({ type: 'DECLINE_BUY' })),
           ),
         );
       } else if (ph.kind === 'rentChoice') {

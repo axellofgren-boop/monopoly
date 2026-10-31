@@ -9,8 +9,6 @@ export const DEFAULT_CONFIG: GameConfig = {
   jailFine: 100,
   ohoppFee: 100,
   turnSeconds: 60,
-  auctionOpenSeconds: 15,
-  auctionBidSeconds: 5,
   crisisSeconds: 60,
   tradeSeconds: 30,
   minigameSeconds: 30,

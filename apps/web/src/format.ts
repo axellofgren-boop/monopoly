@@ -18,18 +18,14 @@ export function describeEvent(state: PublicState, e: GameEvent): string | null {
       return `${n(e.player)} moved to ${spaceAt(e.to).name}`;
     case 'paid':
       // Purchases already get their own line.
-      if (/^(bought|auction for) /.test(e.reason)) return null;
+      if (/^bought /.test(e.reason)) return null;
       return e.from === 'bank' || e.to === 'bank' || e.reason === 'trade'
         ? `${n(e.from)} paid ${n(e.to)} ${kr(e.amount)} (${e.reason})`
         : `${n(e.from)} paid ${n(e.to)} ${kr(e.amount)} ${e.reason}`;
     case 'bought':
       return `${n(e.player)} bought ${spaceAt(e.space).name} for ${kr(e.price)}`;
-    case 'auctionStarted':
-      return `Auction for ${spaceAt(e.space).name}!`;
-    case 'auctionWon':
-      return e.player
-        ? `${n(e.player)} won ${spaceAt(e.space).name} for ${kr(e.price)}`
-        : `Nobody bid on ${spaceAt(e.space).name}`;
+    case 'declinedBuy':
+      return `${n(e.player)} didn't buy ${spaceAt(e.space).name}`;
     case 'card':
       return `Händelse for ${n(e.player)}: ${e.card}`;
     case 'item':

@@ -111,8 +111,6 @@ class Turn {
         return this.buy(a.player);
       case 'DECLINE_BUY':
         return this.declineBuy(a.player);
-      case 'BID':
-        return this.bid(a.player, a.amount);
       case 'PAY_RENT':
         return this.payRent(a.player);
       case 'PAY_JAIL_FINE':
@@ -528,61 +526,25 @@ class Turn {
     });
   }
 
-  // ---------------------------------------------------------------- buying & auctions
+  // ---------------------------------------------------------------- buying
 
   private buy(id: PlayerId): void {
     const p = this.requireCurrent(id, 'awaitingBuyDecision');
     const ph = this.s.phase as Extract<Phase, { kind: 'awaitingBuyDecision' }>;
     const space = spaceAt(ph.space);
     if (!isOwnable(space)) return fail('Not for sale');
-    if (p.cash < space.price) fail('Not enough cash; decline to start an auction');
+    if (p.cash < space.price) fail('Not enough cash');
     this.transfer(p.id, 'bank', space.price, `bought ${space.name}`);
     getProperty(this.s, ph.space).owner = p.id;
     this.emit({ type: 'bought', player: p.id, space: ph.space, price: space.price });
     this.continueTurn();
   }
 
+  /** Not buying leaves the place with the bank; the next player to land there can buy it. */
   private declineBuy(id: PlayerId): void {
     this.requireCurrent(id, 'awaitingBuyDecision');
     const ph = this.s.phase as Extract<Phase, { kind: 'awaitingBuyDecision' }>;
-    this.startAuction(ph.space);
-  }
-
-  private startAuction(space: number): void {
-    this.s.phase = {
-      kind: 'auction',
-      space,
-      highBid: 0,
-      highBidder: null,
-      endsAt: this.now + this.s.config.auctionOpenSeconds * 1000,
-    };
-    this.emit({ type: 'auctionStarted', space });
-  }
-
-  private bid(id: PlayerId, amount: number): void {
-    const ph = this.s.phase;
-    if (ph.kind !== 'auction') return fail('No auction is running');
-    const p = this.player(id);
-    if (p.bankrupt) fail('You are out of the game');
-    const min = Math.max(10, ph.highBid + 10);
-    if (!Number.isInteger(amount) || amount % 10 !== 0) fail('Bids go in steps of 10 kr');
-    if (amount < min) fail(`Bid at least ${min} kr`);
-    if (amount > p.cash) fail('You cannot bid more than your cash');
-    ph.highBid = amount;
-    ph.highBidder = id;
-    ph.endsAt = this.now + this.s.config.auctionBidSeconds * 1000;
-  }
-
-  private closeAuction(): void {
-    const ph = this.s.phase as Extract<Phase, { kind: 'auction' }>;
-    const winner = ph.highBidder ? this.player(ph.highBidder) : null;
-    if (winner && !winner.bankrupt && winner.cash >= ph.highBid) {
-      this.transfer(winner.id, 'bank', ph.highBid, `auction for ${spaceAt(ph.space).name}`);
-      getProperty(this.s, ph.space).owner = winner.id;
-      this.emit({ type: 'auctionWon', player: winner.id, space: ph.space, price: ph.highBid });
-    } else {
-      this.emit({ type: 'auctionWon', player: null, space: ph.space, price: 0 });
-    }
+    this.emit({ type: 'declinedBuy', player: id, space: ph.space });
     this.continueTurn();
   }
 
@@ -1027,9 +989,6 @@ class Turn {
 
     const ph = this.s.phase;
     switch (ph.kind) {
-      case 'auction':
-        if (now >= ph.endsAt) this.closeAuction();
-        return;
       case 'crisis':
         if (now >= ph.endsAt) this.bankrupt(this.player(ph.debtor), ph.creditor);
         return;
