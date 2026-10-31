@@ -13,7 +13,7 @@ The rules live in the [Hometown rulebook](https://claude.ai/artifact/ELMJdVKNULt
 | `packages/engine`   | The rules engine: a pure, deterministic reducer with no I/O. All game rules and their tests live here.                       |
 | `packages/protocol` | Message types shared by the server and the browser.                                                                          |
 | `apps/server`       | Node game server: rooms, join-by-link, timers, minigame scores, autopilot for players who drop out. Serves the built client. |
-| `apps/web`          | Browser client (Vite + TypeScript). A 2D prototype board for now; the 3D board comes next.                                   |
+| `apps/web`          | Browser client (Vite + TypeScript + three.js). The 3D Stockholm board, with a 2D fallback when WebGL is unavailable.         |
 
 The server is authoritative: browsers send intents ("roll", "buy"), the server stamps the
 player and time, runs the engine and broadcasts the public state. Card order and the RNG seed

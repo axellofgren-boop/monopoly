@@ -2,14 +2,19 @@
 import { TOKENS } from '@hometown/protocol';
 import type { LobbyPlayer, ServerMessage, Token } from '@hometown/protocol';
 import { h } from './dom.js';
-import { appendLog, renderGame } from './game.js';
+import { appendLog, renderGame, tickCountdowns } from './game.js';
 import type { GameView } from './game.js';
 import { playPlogbilen } from './minigame.js';
 import { Connection, saveSession } from './net.js';
+import { BoardScene } from './scene/index.js';
 import { TOKEN_INFO } from './theme.js';
 import './style.css';
 
 const app = document.getElementById('app') as HTMLElement;
+const board3d = BoardScene.create(document.getElementById('scene') as HTMLCanvasElement);
+if (!board3d) document.body.classList.add('flat');
+// Handy for poking at the board from the console while developing.
+if (import.meta.env.DEV) Object.assign(window, { hometownBoard: board3d });
 
 interface Model {
   connected: boolean;
@@ -195,10 +200,33 @@ function lobbyView(): HTMLElement {
   );
 }
 
+if (board3d) {
+  board3d.onSpaceClick = (index) => {
+    const view = model.game;
+    if (!view) return;
+    view.selected = view.selected === index ? null : index;
+    render();
+  };
+}
+
+const camera = board3d
+  ? {
+      view: (kind: 'board' | 'me') => board3d.view(kind),
+      zoom: (factor: number) => board3d.zoom(factor),
+    }
+  : undefined;
+
 function render(): void {
   const view = model.game;
+  if (board3d) {
+    board3d.update(view?.state ?? null, view?.me ?? null);
+    board3d.select(view?.selected ?? null);
+    board3d.setAutoRotate(!view);
+  }
+  document.body.classList.toggle('in-game', Boolean(view));
   const screen = view
     ? renderGame(view, {
+        camera,
         send: (intent) => conn.send({ type: 'intent', intent }),
         select: (space) => {
           view.selected = space;
@@ -221,9 +249,9 @@ function render(): void {
   if (toast) setTimeout(() => (model.error = null), 3000);
 }
 
-// Keep the countdowns fresh without a server message.
+// Keep the countdowns fresh without re-rendering (which would swap buttons under the cursor).
 setInterval(() => {
-  if (model.game && !model.game.trading) render();
+  if (model.game) tickCountdowns(app, model.game);
 }, 1000);
 
 render();
