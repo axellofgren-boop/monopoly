@@ -5,7 +5,7 @@ import type { Intent, LobbyPlayer, Token } from '@hometown/protocol';
 import { renderBoard } from './board.js';
 import { h, kr } from './dom.js';
 import { describeEvent, nameOf } from './format.js';
-import { TOKEN_INFO } from './theme.js';
+import { GROUP_COLORS, TOKEN_INFO } from './theme.js';
 
 export interface GameView {
   state: PublicState;
@@ -305,7 +305,54 @@ function propertyPopover(view: GameView, on: GameHandlers): HTMLElement | null {
   return h('div', { class: 'popover' }, rows);
 }
 
-function playersList(view: GameView): HTMLElement {
+/** Players whose list of places is expanded; kept across re-renders. */
+const openHoldings = new Set<string>();
+
+function holdings(view: GameView, playerId: string, on: GameHandlers): HTMLElement | null {
+  const owned = Object.entries(view.state.properties)
+    .filter(([, prop]) => prop.owner === playerId)
+    .map(([i]) => Number(i))
+    .sort((a, b) => a - b);
+  if (!owned.length) return h('span', { class: 'items' }, 'Owns nothing yet');
+  const details = h(
+    'details',
+    { class: 'holdings', open: openHoldings.has(playerId) },
+    h('summary', {}, `Owns ${owned.length} ${owned.length === 1 ? 'place' : 'places'}`),
+    h(
+      'ul',
+      {},
+      owned.map((i) => {
+        const space = spaceAt(i);
+        const prop = view.state.properties[i]!;
+        const color = space.kind === 'street' ? GROUP_COLORS[space.group] : '#9aa3c7';
+        const extras = [
+          prop.landmark ? 'landmark' : prop.houses ? `${prop.houses} 🏠` : '',
+          prop.mortgaged ? 'mortgaged' : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        return h(
+          'li',
+          {},
+          h(
+            'button',
+            { class: `holding ${prop.mortgaged ? 'mortgaged' : ''}`, onclick: () => on.select(i) },
+            h('span', { class: 'swatch', style: `background:${color}` }),
+            space.name,
+            extras ? h('span', { class: 'extra' }, extras) : null,
+          ),
+        );
+      }),
+    ),
+  );
+  details.addEventListener('toggle', () => {
+    if ((details as HTMLDetailsElement).open) openHoldings.add(playerId);
+    else openHoldings.delete(playerId);
+  });
+  return details;
+}
+
+function playersList(view: GameView, on: GameHandlers): HTMLElement {
   const { state } = view;
   return h(
     'ul',
@@ -333,6 +380,7 @@ function playersList(view: GameView): HTMLElement {
           ? h('span', { class: 'items' }, p.items.map((i) => ITEM_NAMES[i]).join(', '))
           : null,
         p.inJail ? h('span', { class: 'items' }, 'In Arresten') : null,
+        p.bankrupt ? null : holdings(view, p.id, on),
       );
     }),
   );
@@ -488,7 +536,7 @@ export function renderGame(view: GameView, on: GameHandlers): HTMLElement {
       view.log.slice(0, 8).map((l) => h('li', {}, l)),
     ),
   );
-  const players = h('aside', { class: 'side' }, h('h2', {}, 'Players'), playersList(view));
+  const players = h('aside', { class: 'side' }, h('h2', {}, 'Players'), playersList(view, on));
   const camera = on.camera;
   if (!camera) {
     return h(
