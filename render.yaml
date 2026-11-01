@@ -1,0 +1,13 @@
+# One-click hosting on Render (free plan): dashboard.render.com -> New -> Blueprint -> this repo.
+services:
+  - type: web
+    name: hometown
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start --workspace @hometown/server
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0

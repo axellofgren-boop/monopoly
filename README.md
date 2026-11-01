@@ -40,6 +40,18 @@ For development with hot reload:
 npm run dev        # server on :8787 and client on http://localhost:5173
 ```
 
+## Hosting online
+
+The repo includes a [Render](https://render.com) blueprint (`render.yaml`) for the free plan:
+
+1. Sign in at [dashboard.render.com](https://dashboard.render.com) with GitHub.
+2. Choose **New → Blueprint**, pick this repository, and press **Apply**.
+3. After the first build (a few minutes) the game is live at `https://hometown-xxxx.onrender.com`.
+
+Every push to `main` redeploys. On the free plan the server sleeps after about 15 minutes with
+nobody on the site, and the first visit after that takes up to a minute to wake it. Open games
+live in memory, so a redeploy or sleep ends them.
+
 ## Checks
 
 ```sh

@@ -27,6 +27,12 @@ export function saveSession(session: Session | null): void {
   }
 }
 
+/**
+ * Free hosts put the server to sleep after a while without HTTP requests, and WebSocket
+ * traffic may not count. While a tab is open, a light request now and then keeps it awake.
+ */
+const KEEP_AWAKE_MS = 4 * 60_000;
+
 export class Connection {
   private socket: WebSocket | null = null;
   private queue: ClientMessage[] = [];
@@ -37,6 +43,9 @@ export class Connection {
     private readonly onStatus: (connected: boolean) => void,
   ) {
     this.open();
+    setInterval(() => {
+      if (this.socket?.readyState === WebSocket.OPEN) void fetch('/health').catch(() => undefined);
+    }, KEEP_AWAKE_MS);
   }
 
   send(msg: ClientMessage): void {
