@@ -157,33 +157,22 @@ describe('doubles and Arresten', () => {
   });
 });
 
-describe('auctions', () => {
-  it('sells to the highest bidder when the timer runs out', () => {
+describe('not buying', () => {
+  it('leaves the place with the bank and carries on with the turn', () => {
     let s = roll(newGame(), 1, 2).state;
-    s = act(s, { type: 'DECLINE_BUY', player: 'ann' }).state;
-    expect(s.phase.kind).toBe('auction');
-    s = act(s, { type: 'BID', player: 'bo', amount: 50 }).state;
-    expect(refused(s, { type: 'BID', player: 'ann', amount: 55 })).toMatch(/steps/);
-    s = act(s, { type: 'BID', player: 'ann', amount: 60 }).state;
-    s = act(s, { type: 'TICK', now: T0 + 4_000 }).state;
-    expect(s.phase.kind).toBe('auction');
-    s = act(s, { type: 'TICK', now: T0 + 5_000 }).state;
-    expect(s.properties[3]?.owner).toBe('ann');
-    expect(player(s, 'ann').cash).toBe(2440);
-  });
-
-  it('leaves the property with the bank when nobody bids', () => {
-    let s = roll(newGame(), 1, 2).state;
-    s = act(s, { type: 'DECLINE_BUY', player: 'ann' }).state;
-    s = act(s, { type: 'TICK', now: T0 + 15_000 }).state;
+    const out = act(s, { type: 'DECLINE_BUY', player: 'ann' });
+    s = out.state;
     expect(s.properties[3]?.owner).toBeNull();
+    expect(player(s, 'ann').cash).toBe(2500);
     expect(s.phase.kind).toBe('turnEnd');
+    expect(out.events).toContainEqual({ type: 'declinedBuy', player: 'ann', space: 3 });
   });
 
   it('declines automatically when the turn timer runs out', () => {
     let s = roll(newGame(), 1, 2).state;
     s = act(s, { type: 'TICK', now: T0 + 60_000 }).state;
-    expect(s.phase.kind).toBe('auction');
+    expect(s.properties[3]?.owner).toBeNull();
+    expect(s.phase.kind).not.toBe('awaitingBuyDecision');
   });
 });
 
